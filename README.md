@@ -6,8 +6,9 @@ It does not create, rotate, or delete Ceph users. PVE or another Ceph administra
 
 ## Features
 
-- PVE-first SSH access with no PVE API dependency
-- Local execution for cephadm, Rook, packages, and other Ceph distributions
+- PVE-first local execution with no PVE API dependency
+- Active Ceph manager coordination for conflict-free multi-host deployment
+- Local or SSH execution for cephadm, Rook, packages, and other Ceph distributions
 - OpenBao and Vault KV v2 HTTP API support
 - Idempotent writes
 - KV compare-and-set protection against concurrent updates
@@ -33,38 +34,29 @@ cp config.example.json config.json
 chmod 0600 config.json
 ```
 
-The configuration does not contain Ceph keys or a Vault token. Authentication uses SSH configuration and the environment variable named by `vault.token_env`.
+The configuration does not contain Ceph keys or a Vault token. Authentication uses the environment variable named by `vault.token_env`.
 
-### PVE over SSH
+### PVE cluster
 
-```json
-{
-  "ceph": {
-    "transport": "ssh",
-    "host": "pve-node.example.com",
-    "user": "root",
-    "port": 22,
-    "command": ["ceph"]
-  }
-}
-```
-
-Host-key checking follows the local OpenSSH configuration. Use `~/.ssh/config` for jump hosts, identity files, and aliases.
-
-### Other Ceph distributions
-
-Run on a host with an authenticated Ceph CLI:
+Install the same binary and configuration on every PVE node. Local execution and active-manager coordination are the defaults:
 
 ```json
 {
   "ceph": {
     "transport": "local",
-    "command": ["ceph"]
+    "command": ["ceph"],
+    "coordination": "active-manager"
   }
 }
 ```
 
-A command prefix can be included when required:
+Each run asks the Ceph monitors for the active manager. Only that manager's host reads credentials or accesses Vault; standby hosts exit successfully. Manager names are matched against the local short or fully qualified hostname. Set `ceph.manager_name` separately on each host only when its manager daemon ID does not match its hostname.
+
+Ceph monitor consensus provides one active manager during normal operation. Vault compare-and-set remains the final write guard. Existing `_ceph_fsid` metadata also prevents a different Ceph cluster from taking over the same Vault paths. Keep `vault.path_prefix` unique per Ceph cluster.
+
+### Other Ceph distributions
+
+Any deployment that supports `ceph mgr dump --format json`, `ceph fsid`, and `ceph auth get-key ENTITY` can use active-manager coordination. A command prefix can be included when required:
 
 ```json
 {
@@ -75,7 +67,45 @@ A command prefix can be included when required:
 }
 ```
 
-Any deployment that supports `ceph fsid` and `ceph auth get-key ENTITY` works.
+For one external runner, set `coordination` to `none`. Do not use `none` on every node in a cluster. SSH transport remains available; `ceph.host` identifies the remote manager unless `ceph.manager_name` is set explicitly.
+
+### systemd timer on every PVE node
+
+Install the binary at `/usr/local/sbin/ceph-vault-sync`, the configuration at `/etc/ceph-vault-sync.json`, and a root-only environment file containing `VAULT_TOKEN` at `/etc/ceph-vault-sync.env`.
+
+```ini
+# /etc/systemd/system/ceph-vault-sync.service
+[Unit]
+After=network-online.target pve-cluster.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ceph-vault-sync.env
+ExecStart=/usr/local/sbin/ceph-vault-sync sync -config /etc/ceph-vault-sync.json
+```
+
+```ini
+# /etc/systemd/system/ceph-vault-sync.timer
+[Unit]
+Description=Synchronize Ceph credentials to Vault
+
+[Timer]
+OnBootSec=1m
+OnUnitActiveSec=1m
+RandomizedDelaySec=15s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+chmod 0600 /etc/ceph-vault-sync.json /etc/ceph-vault-sync.env
+systemctl daemon-reload
+systemctl enable --now ceph-vault-sync.timer
+```
+
+Systemd does not overlap activations of the same oneshot service on one host. Active-manager coordination prevents overlap between hosts.
 
 ## Synchronize
 
@@ -106,7 +136,7 @@ Check for drift without writing. Exit status 2 means at least one path differs:
 ceph-vault-sync sync -config config.json -check
 ```
 
-Use a systemd timer, cron, or a trusted CI runner for periodic execution. Run it immediately after an administrator changes a CephX key.
+Run the service immediately after an administrator changes a CephX key instead of waiting for the next timer interval.
 
 ## External Secrets
 

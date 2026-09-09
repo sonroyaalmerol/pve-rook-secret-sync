@@ -19,11 +19,13 @@ type config struct {
 }
 
 type cephConfig struct {
-	Transport string   `json:"transport"`
-	Host      string   `json:"host"`
-	User      string   `json:"user"`
-	Port      int      `json:"port"`
-	Command   []string `json:"command"`
+	Transport    string   `json:"transport"`
+	Host         string   `json:"host"`
+	User         string   `json:"user"`
+	Port         int      `json:"port"`
+	Command      []string `json:"command"`
+	Coordination string   `json:"coordination"`
+	ManagerName  string   `json:"manager_name"`
 }
 
 type vaultConfig struct {
@@ -84,6 +86,9 @@ func (cfg *config) applyDefaults() {
 	if len(cfg.Ceph.Command) == 0 {
 		cfg.Ceph.Command = []string{"ceph"}
 	}
+	if cfg.Ceph.Coordination == "" {
+		cfg.Ceph.Coordination = "active-manager"
+	}
 	if cfg.Vault.Address == "" {
 		cfg.Vault.Address = os.Getenv("VAULT_ADDR")
 	}
@@ -116,6 +121,9 @@ func (cfg config) validate() error {
 	}
 	if len(cfg.Ceph.Command) == 0 || cfg.Ceph.Command[0] == "" {
 		return errors.New("ceph.command must not be empty")
+	}
+	if cfg.Ceph.Coordination != "active-manager" && cfg.Ceph.Coordination != "none" {
+		return errors.New("ceph.coordination must be active-manager or none")
 	}
 	if cfg.Vault.Address == "" {
 		return errors.New("vault.address or VAULT_ADDR is required")

@@ -22,7 +22,7 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Ceph.Transport != "ssh" || cfg.Ceph.User != "root" || cfg.Ceph.Port != 22 {
+	if cfg.Ceph.Transport != "ssh" || cfg.Ceph.User != "root" || cfg.Ceph.Port != 22 || cfg.Ceph.Coordination != "active-manager" {
 		t.Fatalf("unexpected Ceph defaults: %+v", cfg.Ceph)
 	}
 	if cfg.Vault.Address != "https://vault.example.com" || cfg.Vault.TokenEnv != "VAULT_TOKEN" {
@@ -35,7 +35,7 @@ func TestLoadConfig(t *testing.T) {
 
 func TestConfigValidation(t *testing.T) {
 	base := config{
-		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}},
+		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, Coordination: "active-manager"},
 		Vault:           vaultConfig{Address: "https://vault.example.com", Mount: "secret", PathPrefix: "rook/staging"},
 		RookClusterName: "rook-ceph",
 		Credentials:     []credentialSpec{{VaultPath: "mon", Entity: "client.healthchecker", Kind: "rook-mon"}},
@@ -45,6 +45,7 @@ func TestConfigValidation(t *testing.T) {
 		change func(*config)
 		match  string
 	}{
+		{"unknown coordination", func(cfg *config) { cfg.Ceph.Coordination = "all-hosts" }, "coordination must be"},
 		{"remote HTTP", func(cfg *config) { cfg.Vault.Address = "http://vault.example.com" }, "must use HTTPS"},
 		{"parent path", func(cfg *config) { cfg.Vault.PathPrefix = "rook/../other" }, "parent segments"},
 		{"duplicate path", func(cfg *config) { cfg.Credentials = append(cfg.Credentials, cfg.Credentials[0]) }, "duplicate"},

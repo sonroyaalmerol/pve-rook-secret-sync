@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,6 +18,31 @@ type cephSource struct {
 
 func newCephSource(cfg cephConfig) cephSource {
 	return cephSource{config: cfg}
+}
+
+func (source cephSource) CanSynchronize(ctx context.Context) (bool, string, error) {
+	if source.config.Coordination == "none" {
+		return true, "", nil
+	}
+	out, err := source.run(ctx, "mgr", "dump", "--format", "json")
+	if err != nil {
+		return false, "", fmt.Errorf("read active ceph manager: %w", err)
+	}
+	active, err := parseActiveManager(out)
+	if err != nil {
+		return false, "", err
+	}
+	local := source.config.ManagerName
+	if local == "" && source.config.Transport == "ssh" {
+		local = source.config.Host
+	}
+	if local == "" {
+		local, err = os.Hostname()
+		if err != nil {
+			return false, "", fmt.Errorf("read local hostname: %w", err)
+		}
+	}
+	return managerNamesMatch(local, active), active, nil
 }
 
 func (source cephSource) FSID(ctx context.Context) (string, error) {
@@ -71,6 +99,36 @@ func (source cephSource) run(ctx context.Context, args ...string) ([]byte, error
 		}
 	}
 	return nil, fmt.Errorf("command failed: %w", err)
+}
+
+func parseActiveManager(out []byte) (string, error) {
+	var status struct {
+		ActiveName string `json:"active_name"`
+	}
+	if err := json.Unmarshal(out, &status); err != nil {
+		return "", fmt.Errorf("decode active ceph manager: %w", err)
+	}
+	if strings.TrimSpace(status.ActiveName) == "" {
+		return "", errors.New("decode active ceph manager: active_name is empty")
+	}
+	return status.ActiveName, nil
+}
+
+func managerNamesMatch(local, active string) bool {
+	return canonicalManagerName(local) == canonicalManagerName(active)
+}
+
+func canonicalManagerName(value string) string {
+	value = strings.Trim(strings.ToLower(strings.TrimSpace(value)), "[]")
+	value = strings.TrimSuffix(value, ".")
+	value = strings.TrimPrefix(value, "mgr.")
+	if net.ParseIP(value) != nil {
+		return value
+	}
+	if i := strings.IndexByte(value, '.'); i >= 0 {
+		return value[:i]
+	}
+	return value
 }
 
 func shellQuote(value string) string {

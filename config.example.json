@@ -1,10 +1,8 @@
 {
   "ceph": {
-    "transport": "ssh",
-    "host": "pve-node.example.com",
-    "user": "root",
-    "port": 22,
-    "command": ["ceph"]
+    "transport": "local",
+    "command": ["ceph"],
+    "coordination": "active-manager"
   },
   "vault": {
     "address": "https://vault.example.com:8200",

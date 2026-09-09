@@ -13,6 +13,7 @@ import (
 )
 
 type cephReader interface {
+	CanSynchronize(context.Context) (bool, string, error)
 	FSID(context.Context) (string, error)
 	Key(context.Context, string) (string, error)
 }
@@ -40,6 +41,15 @@ type plannedSecret struct {
 }
 
 func synchronize(ctx context.Context, cfg config, source cephReader, vault vaultStore, options syncOptions) error {
+	eligible, activeManager, err := source.CanSynchronize(ctx)
+	if err != nil {
+		return err
+	}
+	if !eligible {
+		fmt.Fprintf(options.Output, "standby: active ceph manager is %s\n", activeManager)
+		return nil
+	}
+
 	fsid, err := source.FSID(ctx)
 	if err != nil {
 		return err
@@ -64,6 +74,9 @@ func synchronize(ctx context.Context, cfg config, source cephReader, vault vault
 		current, err := vault.Read(ctx, secret.Path)
 		if err != nil {
 			return err
+		}
+		if currentFSID := storedFSID(current.Data); currentFSID != "" && currentFSID != fsid {
+			return fmt.Errorf("vault path %s belongs to ceph cluster %s, not %s", secret.Path, currentFSID, fsid)
 		}
 		action := "unchanged"
 		if !current.Exists {
@@ -164,6 +177,13 @@ func credentialGeneration(fsid string, credentials []credentialSpec, keys map[st
 		_, _ = io.WriteString(hash, part+"\x00")
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func storedFSID(data map[string]string) string {
+	if fsid := data["_ceph_fsid"]; fsid != "" {
+		return fsid
+	}
+	return data["fsid"]
 }
 
 func sameCredentialData(current, desired map[string]string) bool {

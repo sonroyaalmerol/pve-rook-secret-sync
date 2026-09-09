@@ -1,15 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
 type fakeCeph struct {
-	fsid string
-	keys map[string]string
+	fsid    string
+	keys    map[string]string
+	standby bool
+}
+
+func (ceph fakeCeph) CanSynchronize(context.Context) (bool, string, error) {
+	return !ceph.standby, "pve1", nil
 }
 
 func (ceph fakeCeph) FSID(context.Context) (string, error) {
@@ -23,9 +30,11 @@ func (ceph fakeCeph) Key(_ context.Context, entity string) (string, error) {
 type fakeVault struct {
 	values map[string]vaultValue
 	writes map[string]map[string]string
+	reads  int
 }
 
 func (vault *fakeVault) Read(_ context.Context, path string) (vaultValue, error) {
+	vault.reads++
 	return vault.values[path], nil
 }
 
@@ -80,6 +89,39 @@ func TestSynchronizeCheckAndWrite(t *testing.T) {
 	}
 	if vault.writes["rook-ceph-mon"]["_synced_at"] == "" {
 		t.Fatal("write has no synchronization timestamp")
+	}
+}
+
+func TestSynchronizeStandbyDoesNotAccessVault(t *testing.T) {
+	var output bytes.Buffer
+	ceph := fakeCeph{standby: true}
+	vault := &fakeVault{values: map[string]vaultValue{}, writes: map[string]map[string]string{}}
+
+	if err := synchronize(context.Background(), testConfig(), ceph, vault, syncOptions{Output: &output}); err != nil {
+		t.Fatal(err)
+	}
+	if vault.reads != 0 || len(vault.writes) != 0 {
+		t.Fatalf("standby performed %d reads and %d writes", vault.reads, len(vault.writes))
+	}
+	if output.String() != "standby: active ceph manager is pve1\n" {
+		t.Fatalf("unexpected output %q", output.String())
+	}
+}
+
+func TestSynchronizeRejectsAnotherCluster(t *testing.T) {
+	cfg := testConfig()
+	ceph := fakeCeph{fsid: "fsid", keys: map[string]string{"client.healthchecker": "mon-key", "client.csi-rbd-node": "rbd-key"}}
+	vault := &fakeVault{
+		values: map[string]vaultValue{"rook-ceph-mon": {Exists: true, Data: map[string]string{"_ceph_fsid": "other-fsid"}}},
+		writes: map[string]map[string]string{},
+	}
+
+	err := synchronize(context.Background(), cfg, ceph, vault, syncOptions{Output: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "belongs to ceph cluster other-fsid") {
+		t.Fatalf("got %v, want cluster ownership error", err)
+	}
+	if len(vault.writes) != 0 {
+		t.Fatalf("wrote %d secrets for another cluster", len(vault.writes))
 	}
 }
 
