@@ -1,3 +1,4 @@
 ceph-vault-sync
 coverage.out
 config.json
+dist/

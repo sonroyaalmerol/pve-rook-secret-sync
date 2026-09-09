@@ -1,0 +1,68 @@
+version: 2
+
+project_name: ceph-vault-sync
+
+builds:
+  - id: ceph-vault-sync
+    main: .
+    binary: ceph-vault-sync
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - ids:
+      - ceph-vault-sync
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      - config.example.json
+
+nfpms:
+  - id: deb
+    package_name: ceph-vault-sync
+    ids:
+      - ceph-vault-sync
+    vendor: Son Roy Almerol
+    homepage: https://github.com/sonroyaalmerol/ceph-vault-sync
+    maintainer: Son Roy Almerol <sralmerol@sgl.com>
+    description: Synchronize CephX credentials to OpenBao or Vault KV v2
+    formats:
+      - deb
+    bindir: /usr/sbin
+    contents:
+      - src: config.example.json
+        dst: /etc/ceph-vault-sync/config.json
+        type: config|noreplace
+        file_info:
+          mode: 0600
+      - src: packaging/ceph-vault-sync.env
+        dst: /etc/default/ceph-vault-sync
+        type: config|noreplace
+        file_info:
+          mode: 0600
+      - src: packaging/ceph-vault-sync.service
+        dst: /lib/systemd/system/ceph-vault-sync.service
+      - src: packaging/ceph-vault-sync.timer
+        dst: /lib/systemd/system/ceph-vault-sync.timer
+      - src: README.md
+        dst: /usr/share/doc/ceph-vault-sync/README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

@@ -25,6 +25,24 @@ Go 1.24 or newer is required.
 go build -o ceph-vault-sync .
 ```
 
+Tagged releases publish Linux amd64 and arm64 archives, Debian packages, and SHA-256 checksums through GitHub Actions:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Install a release package on each PVE node, then edit the packaged example configuration and Vault environment file:
+
+```bash
+apt install ./ceph-vault-sync_0.1.0_linux_amd64.deb
+editor /etc/ceph-vault-sync/config.json
+editor /etc/default/ceph-vault-sync
+systemctl enable --now ceph-vault-sync.timer
+```
+
+The package does not enable the timer before those files are configured.
+
 ## Configure
 
 Copy `config.example.json` outside the repository and restrict its permissions:
@@ -71,37 +89,12 @@ For one external runner, set `coordination` to `none`. Do not use `none` on ever
 
 ### systemd timer on every PVE node
 
-Install the binary at `/usr/local/sbin/ceph-vault-sync`, the configuration at `/etc/ceph-vault-sync.json`, and a root-only environment file containing `VAULT_TOKEN` at `/etc/ceph-vault-sync.env`.
+The Debian package installs the binary at `/usr/sbin/ceph-vault-sync`, the configuration at `/etc/ceph-vault-sync/config.json`, the root-only Vault environment file at `/etc/default/ceph-vault-sync`, and the service and timer units under `/lib/systemd/system`.
 
-```ini
-# /etc/systemd/system/ceph-vault-sync.service
-[Unit]
-After=network-online.target pve-cluster.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=/etc/ceph-vault-sync.env
-ExecStart=/usr/local/sbin/ceph-vault-sync sync -config /etc/ceph-vault-sync.json
-```
-
-```ini
-# /etc/systemd/system/ceph-vault-sync.timer
-[Unit]
-Description=Synchronize Ceph credentials to Vault
-
-[Timer]
-OnBootSec=1m
-OnUnitActiveSec=1m
-RandomizedDelaySec=15s
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
+Set `VAULT_TOKEN` in `/etc/default/ceph-vault-sync`, then enable the timer after configuring every node:
 
 ```bash
-chmod 0600 /etc/ceph-vault-sync.json /etc/ceph-vault-sync.env
-systemctl daemon-reload
+chmod 0600 /etc/ceph-vault-sync/config.json /etc/default/ceph-vault-sync
 systemctl enable --now ceph-vault-sync.timer
 ```
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Synchronize Ceph credentials to Vault
+Wants=network-online.target
+After=network-online.target pve-cluster.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/ceph-vault-sync
+ExecStart=/usr/sbin/ceph-vault-sync sync -config /etc/ceph-vault-sync/config.json
+UMask=0077
