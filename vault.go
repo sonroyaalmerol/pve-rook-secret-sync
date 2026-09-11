@@ -59,12 +59,18 @@ func newVaultClient(cfg vaultConfig) (*vaultClient, error) {
 		mount:     cfg.Mount,
 		prefix:    cfg.PathPrefix,
 		token:     token,
-		http:      &http.Client{Transport: transport, Timeout: 30 * time.Second},
+		http: &http.Client{
+			Transport: transport,
+			Timeout:   30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}, nil
 }
 
 func (client *vaultClient) Read(ctx context.Context, path string) (vaultValue, error) {
-	req, err := client.request(ctx, http.MethodGet, path, nil)
+	req, err := client.request(ctx, http.MethodGet, "data", path, nil)
 	if err != nil {
 		return vaultValue{}, err
 	}
@@ -75,7 +81,11 @@ func (client *vaultClient) Read(ctx context.Context, path string) (vaultValue, e
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return vaultValue{}, nil
+		version, err := client.currentVersion(ctx, path)
+		if err != nil {
+			return vaultValue{}, err
+		}
+		return vaultValue{Version: version}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -109,7 +119,7 @@ func (client *vaultClient) Write(ctx context.Context, path string, data map[stri
 	if err != nil {
 		return fmt.Errorf("encode Vault path %s: %w", path, err)
 	}
-	req, err := client.request(ctx, http.MethodPost, path, body)
+	req, err := client.request(ctx, http.MethodPost, "data", path, body)
 	if err != nil {
 		return err
 	}
@@ -126,8 +136,42 @@ func (client *vaultClient) Write(ctx context.Context, path string, data map[stri
 	return nil
 }
 
-func (client *vaultClient) request(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
-	endpoint := client.address + "/v1/" + url.PathEscape(client.mount) + "/data/" + escapeVaultPath(strings.Trim(client.prefix+"/"+path, "/"))
+func (client *vaultClient) currentVersion(ctx context.Context, path string) (int, error) {
+	req, err := client.request(ctx, http.MethodGet, "metadata", path, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := client.http.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("read Vault metadata %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return 0, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return 0, fmt.Errorf("read Vault metadata %s: HTTP %s", path, resp.Status)
+	}
+
+	var payload struct {
+		Data struct {
+			CurrentVersion int `json:"current_version"`
+		} `json:"data"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, 4<<20))
+	if err := decoder.Decode(&payload); err != nil {
+		return 0, fmt.Errorf("decode Vault metadata %s: %w", path, err)
+	}
+	if payload.Data.CurrentVersion < 1 {
+		return 0, fmt.Errorf("decode Vault metadata %s: invalid current version", path)
+	}
+	return payload.Data.CurrentVersion, nil
+}
+
+func (client *vaultClient) request(ctx context.Context, method, endpointType, path string, body []byte) (*http.Request, error) {
+	endpoint := client.address + "/v1/" + url.PathEscape(client.mount) + "/" + endpointType + "/" + escapeVaultPath(strings.Trim(client.prefix+"/"+path, "/"))
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create Vault request: %w", err)
