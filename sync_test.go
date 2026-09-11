@@ -66,6 +66,35 @@ func TestBuildDesired(t *testing.T) {
 	}
 }
 
+func TestCredentialGenerationTracksRenderedData(t *testing.T) {
+	keys := map[string]string{"client.healthchecker": "mon-key", "client.csi-rbd-node": "rbd-key"}
+	tests := []struct {
+		name   string
+		change func(*config)
+	}{
+		{"cluster name", func(cfg *config) { cfg.RookClusterName = "other-cluster" }},
+		{"credential kind", func(cfg *config) { cfg.Credentials[1].Kind = "rook-cephfs-csi" }},
+		{"user ID", func(cfg *config) { cfg.Credentials[1].UserID = "other-user" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := testConfig()
+			before, err := credentialGeneration("fsid", cfg, keys)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.change(&cfg)
+			after, err := credentialGeneration("fsid", cfg, keys)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before == after {
+				t.Fatal("generation did not change")
+			}
+		})
+	}
+}
+
 func TestSynchronizeCheckAndWrite(t *testing.T) {
 	cfg := testConfig()
 	ceph := fakeCeph{fsid: "fsid", keys: map[string]string{"client.healthchecker": "mon-key", "client.csi-rbd-node": "rbd-key"}}

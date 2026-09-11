@@ -119,7 +119,7 @@ func synchronize(ctx context.Context, cfg config, source cephReader, vault vault
 }
 
 func buildDesired(cfg config, fsid string, keys map[string]string) ([]desiredSecret, error) {
-	generation, err := credentialGeneration(fsid, cfg.Credentials, keys)
+	generation, err := credentialGeneration(fsid, cfg, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -161,14 +161,21 @@ func buildDesired(cfg config, fsid string, keys map[string]string) ([]desiredSec
 	return result, nil
 }
 
-func credentialGeneration(fsid string, credentials []credentialSpec, keys map[string]string) (string, error) {
-	parts := make([]string, 0, len(credentials))
-	for _, credential := range credentials {
+func credentialGeneration(fsid string, cfg config, keys map[string]string) (string, error) {
+	parts := make([]string, 0, len(cfg.Credentials))
+	for _, credential := range cfg.Credentials {
 		key, ok := keys[credential.Entity]
 		if !ok || key == "" {
 			return "", fmt.Errorf("missing key for %s", credential.Entity)
 		}
-		parts = append(parts, credential.VaultPath+"\x00"+credential.Entity+"\x00"+key)
+		identity := credential.UserID
+		if identity == "" {
+			identity = strings.TrimPrefix(credential.Entity, "client.")
+		}
+		if credential.Kind == "rook-mon" {
+			identity = cfg.RookClusterName
+		}
+		parts = append(parts, strings.Join([]string{credential.VaultPath, credential.Entity, credential.Kind, identity, key}, "\x00"))
 	}
 	slices.Sort(parts)
 	hash := sha256.New()
