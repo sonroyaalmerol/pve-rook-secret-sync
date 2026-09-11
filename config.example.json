@@ -2,6 +2,8 @@
   "ceph": {
     "transport": "local",
     "command": ["ceph"],
+    "rgw_command": ["radosgw-admin"],
+    "rgw_pool_prefix": "default",
     "coordination": "active-manager"
   },
   "vault": {
@@ -18,6 +20,11 @@
       "vault_path": "rook-ceph-mon",
       "entity": "client.healthchecker",
       "kind": "rook-mon"
+    },
+    {
+      "vault_path": "rook-ceph-config",
+      "entity": "",
+      "kind": "rook-config"
     },
     {
       "vault_path": "rook-csi-rbd-node",

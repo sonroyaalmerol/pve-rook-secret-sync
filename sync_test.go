@@ -12,6 +12,7 @@ import (
 type fakeCeph struct {
 	fsid    string
 	keys    map[string]string
+	values  map[string]map[string]string
 	standby bool
 }
 
@@ -23,8 +24,11 @@ func (ceph fakeCeph) FSID(context.Context) (string, error) {
 	return ceph.fsid, nil
 }
 
-func (ceph fakeCeph) Key(_ context.Context, entity string) (string, error) {
-	return ceph.keys[entity], nil
+func (ceph fakeCeph) Credential(_ context.Context, credential credentialSpec) (map[string]string, error) {
+	if ceph.values != nil {
+		return ceph.values[credential.VaultPath], nil
+	}
+	return map[string]string{"key": ceph.keys[credential.Entity]}, nil
 }
 
 type fakeVault struct {
@@ -45,13 +49,24 @@ func (vault *fakeVault) Write(_ context.Context, path string, data map[string]st
 
 func TestBuildDesired(t *testing.T) {
 	cfg := testConfig()
-	keys := map[string]string{"client.healthchecker": "mon-key", "client.csi-rbd-node": "rbd-key"}
-	secrets, err := buildDesired(cfg, "fsid", keys)
+	cfg.Credentials = append(cfg.Credentials,
+		credentialSpec{VaultPath: "rook-ceph-config", Kind: "rook-config"},
+		credentialSpec{VaultPath: "rook-ceph-dashboard-link", Kind: "rook-dashboard"},
+		credentialSpec{VaultPath: "rgw-admin-ops-user", Entity: "rgw-admin-ops-user", Kind: "rook-rgw-admin"},
+	)
+	values := map[string]map[string]string{
+		"rook-ceph-mon":            {"key": "mon-key"},
+		"rook-csi-rbd-node":        {"key": "rbd-key"},
+		"rook-ceph-config":         {"mon_host": "[v2:10.0.0.1:3300]", "mon_initial_members": "pve1"},
+		"rook-ceph-dashboard-link": {"url": "https://10.0.0.1:8443/"},
+		"rgw-admin-ops-user":       {"accessKey": "access", "secretKey": "secret"},
+	}
+	secrets, err := buildDesired(cfg, "fsid", values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(secrets) != 2 {
-		t.Fatalf("got %d secrets, want 2", len(secrets))
+	if len(secrets) != 5 {
+		t.Fatalf("got %d secrets, want 5", len(secrets))
 	}
 	mon := secrets[0].Data
 	if mon["ceph-username"] != "client.healthchecker" || mon["ceph-secret"] != "mon-key" || mon["fsid"] != "fsid" {
@@ -61,13 +76,25 @@ func TestBuildDesired(t *testing.T) {
 	if rbd["userID"] != "csi-rbd-node" || rbd["userKey"] != "rbd-key" {
 		t.Fatalf("unexpected RBD secret: %+v", rbd)
 	}
+	if config := secrets[2].Data; config["mon_host"] != "[v2:10.0.0.1:3300]" || config["mon_initial_members"] != "pve1" {
+		t.Fatalf("unexpected config secret: %+v", config)
+	}
+	if dashboard := secrets[3].Data; dashboard["userID"] != "ceph-dashboard-link" || dashboard["userKey"] != "https://10.0.0.1:8443/" {
+		t.Fatalf("unexpected dashboard secret: %+v", dashboard)
+	}
+	if rgw := secrets[4].Data; rgw["accessKey"] != "access" || rgw["secretKey"] != "secret" {
+		t.Fatalf("unexpected RGW secret: %+v", rgw)
+	}
 	if mon["_sync_generation"] == "" || mon["_sync_generation"] != rbd["_sync_generation"] {
 		t.Fatal("secrets do not share a generation")
 	}
 }
 
 func TestCredentialGenerationTracksRenderedData(t *testing.T) {
-	keys := map[string]string{"client.healthchecker": "mon-key", "client.csi-rbd-node": "rbd-key"}
+	values := map[string]map[string]string{
+		"rook-ceph-mon":     {"key": "mon-key"},
+		"rook-csi-rbd-node": {"key": "rbd-key"},
+	}
 	tests := []struct {
 		name   string
 		change func(*config)
@@ -79,12 +106,12 @@ func TestCredentialGenerationTracksRenderedData(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := testConfig()
-			before, err := credentialGeneration("fsid", cfg, keys)
+			before, err := credentialGeneration("fsid", cfg, values)
 			if err != nil {
 				t.Fatal(err)
 			}
 			test.change(&cfg)
-			after, err := credentialGeneration("fsid", cfg, keys)
+			after, err := credentialGeneration("fsid", cfg, values)
 			if err != nil {
 				t.Fatal(err)
 			}

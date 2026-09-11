@@ -49,6 +49,16 @@ func TestRunRejectsNegativeInterval(t *testing.T) {
 	}
 }
 
+func TestRunBootstrapHelp(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run(context.Background(), []string{"bootstrap", "-h"}, io.Discard, &stderr, nil); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "-dry-run") {
+		t.Fatalf("unexpected help %q", stderr.String())
+	}
+}
+
 func TestWatchRunsImmediatelyAndOnSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	trigger := make(chan os.Signal, 1)

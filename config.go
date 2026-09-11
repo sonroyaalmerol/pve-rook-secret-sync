@@ -19,13 +19,18 @@ type config struct {
 }
 
 type cephConfig struct {
-	Transport    string   `json:"transport"`
-	Host         string   `json:"host,omitempty"`
-	User         string   `json:"user,omitempty"`
-	Port         int      `json:"port,omitempty"`
-	Command      []string `json:"command"`
-	Coordination string   `json:"coordination"`
-	ManagerName  string   `json:"manager_name,omitempty"`
+	Transport     string   `json:"transport"`
+	Host          string   `json:"host,omitempty"`
+	User          string   `json:"user,omitempty"`
+	Port          int      `json:"port,omitempty"`
+	Command       []string `json:"command"`
+	RGWCommand    []string `json:"rgw_command,omitempty"`
+	RGWRealm      string   `json:"rgw_realm,omitempty"`
+	RGWZoneGroup  string   `json:"rgw_zonegroup,omitempty"`
+	RGWZone       string   `json:"rgw_zone,omitempty"`
+	RGWPoolPrefix string   `json:"rgw_pool_prefix,omitempty"`
+	Coordination  string   `json:"coordination"`
+	ManagerName   string   `json:"manager_name,omitempty"`
 }
 
 type vaultConfig struct {
@@ -51,7 +56,7 @@ type vaultAuthConfig struct {
 
 type credentialSpec struct {
 	VaultPath string `json:"vault_path"`
-	Entity    string `json:"entity"`
+	Entity    string `json:"entity,omitempty"`
 	Kind      string `json:"kind"`
 	UserID    string `json:"user_id,omitempty"`
 }
@@ -97,6 +102,12 @@ func (cfg *config) applyDefaults() {
 	if len(cfg.Ceph.Command) == 0 {
 		cfg.Ceph.Command = []string{"ceph"}
 	}
+	if len(cfg.Ceph.RGWCommand) == 0 {
+		cfg.Ceph.RGWCommand = []string{"radosgw-admin"}
+	}
+	if cfg.Ceph.RGWPoolPrefix == "" {
+		cfg.Ceph.RGWPoolPrefix = "default"
+	}
 	if cfg.Ceph.Coordination == "" {
 		cfg.Ceph.Coordination = "active-manager"
 	}
@@ -141,6 +152,9 @@ func (cfg config) validate() error {
 	}
 	if len(cfg.Ceph.Command) == 0 || cfg.Ceph.Command[0] == "" {
 		return errors.New("ceph.command must not be empty")
+	}
+	if len(cfg.Ceph.RGWCommand) == 0 || cfg.Ceph.RGWCommand[0] == "" {
+		return errors.New("ceph.rgw_command must not be empty")
 	}
 	if cfg.Ceph.Coordination != "active-manager" && cfg.Ceph.Coordination != "none" {
 		return errors.New("ceph.coordination must be active-manager or none")
@@ -205,7 +219,7 @@ func (cfg config) validate() error {
 
 	paths := make(map[string]struct{}, len(cfg.Credentials))
 	for i, credential := range cfg.Credentials {
-		if credential.Entity == "" {
+		if credential.Entity == "" && credential.Kind != "rook-config" && credential.Kind != "rook-dashboard" {
 			return fmt.Errorf("credentials[%d].entity is required", i)
 		}
 		if credential.VaultPath == "" {
@@ -219,9 +233,9 @@ func (cfg config) validate() error {
 		}
 		paths[credential.VaultPath] = struct{}{}
 		switch credential.Kind {
-		case "rook-mon", "rook-csi", "rook-cephfs-csi":
+		case "rook-mon", "rook-csi", "rook-cephfs-csi", "rook-config", "rook-dashboard", "rook-rgw-admin":
 		default:
-			return fmt.Errorf("credentials[%d].kind must be rook-mon, rook-csi, or rook-cephfs-csi", i)
+			return fmt.Errorf("credentials[%d].kind must be rook-mon, rook-csi, rook-cephfs-csi, rook-config, rook-dashboard, or rook-rgw-admin", i)
 		}
 	}
 	return nil

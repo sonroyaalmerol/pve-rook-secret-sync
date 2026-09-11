@@ -20,6 +20,12 @@ func TestRunInitWritesConfig(t *testing.T) {
 		"-vault-address", "https://vault.example.com:8200",
 		"-vault-namespace", "team",
 		"-path-prefix", "rook-pve/production",
+		"-dashboard",
+		"-rgw",
+		"-rgw-realm", "realm-a",
+		"-rgw-zonegroup", "zonegroup-a",
+		"-rgw-zone", "zone-a",
+		"-rgw-pool-prefix", "zone-a",
 		"-token-file", token,
 		"-output", output,
 	}
@@ -30,13 +36,13 @@ func TestRunInitWritesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Ceph.Transport != "local" || cfg.Ceph.Coordination != "active-manager" {
+	if cfg.Ceph.Transport != "local" || cfg.Ceph.Coordination != "active-manager" || cfg.Ceph.RGWRealm != "realm-a" || cfg.Ceph.RGWZoneGroup != "zonegroup-a" || cfg.Ceph.RGWZone != "zone-a" || cfg.Ceph.RGWPoolPrefix != "zone-a" {
 		t.Fatalf("unexpected Ceph config: %+v", cfg.Ceph)
 	}
 	if cfg.Vault.Address != "https://vault.example.com:8200" || cfg.Vault.Namespace != "team" || cfg.Vault.Mount != "service-secrets" || cfg.Vault.PathPrefix != "rook-pve/production" || cfg.Vault.TokenFile != token {
 		t.Fatalf("unexpected Vault config: %+v", cfg.Vault)
 	}
-	if cfg.RookClusterName != "rook-ceph" || len(cfg.Credentials) != 5 {
+	if cfg.RookClusterName != "rook-ceph" || len(cfg.Credentials) != 8 {
 		t.Fatalf("unexpected Rook config: cluster=%q credentials=%d", cfg.RookClusterName, len(cfg.Credentials))
 	}
 	info, err := os.Stat(output)
@@ -49,8 +55,8 @@ func TestRunInitWritesConfig(t *testing.T) {
 	if _, err := os.Stat(token); !os.IsNotExist(err) {
 		t.Fatalf("token file was created: %v", err)
 	}
-	if !strings.Contains(stdout.String(), token) {
-		t.Fatalf("stdout does not mention token path: %q", stdout.String())
+	if !strings.Contains(stdout.String(), token) || !strings.Contains(stdout.String(), "ceph-vault-sync bootstrap") {
+		t.Fatalf("stdout is missing setup guidance: %q", stdout.String())
 	}
 }
 

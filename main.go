@@ -40,6 +40,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 	if args[0] == "init" {
 		return runInit(args[1:], stdout, stderr)
 	}
+	if args[0] == "bootstrap" {
+		return runBootstrap(ctx, args[1:], stdout, stderr)
+	}
 	if args[0] != "sync" {
 		printUsage(stderr)
 		return 2
@@ -140,5 +143,6 @@ func preferredConfigPath(shared, local string) string {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  ceph-vault-sync init -vault-address URL -path-prefix PATH [OPTIONS]")
+	fmt.Fprintln(w, "  ceph-vault-sync bootstrap [-config FILE] [-dry-run] [-timeout DURATION]")
 	fmt.Fprintln(w, "  ceph-vault-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
 }

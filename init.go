@@ -23,6 +23,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	pathPrefix := flags.String("path-prefix", "", "Vault path prefix for this cluster")
 	caCert := flags.String("ca-cert", os.Getenv("VAULT_CACERT"), "Vault CA certificate path")
 	rookClusterName := flags.String("rook-cluster-name", "rook-ceph", "Rook cluster name")
+	includeDashboard := flags.Bool("dashboard", false, "include the Rook dashboard link secret")
+	includeRGW := flags.Bool("rgw", false, "include and bootstrap the Rook RGW admin user")
+	rgwRealm := flags.String("rgw-realm", "", "Ceph RGW realm")
+	rgwZoneGroup := flags.String("rgw-zonegroup", "", "Ceph RGW zonegroup")
+	rgwZone := flags.String("rgw-zone", "", "Ceph RGW zone")
+	rgwPoolPrefix := flags.String("rgw-pool-prefix", "default", "Ceph RGW pool prefix used by health checks")
 	tokenFile := flags.String("token-file", sharedTokenPath, "Vault token file referenced by the config")
 	authMethod := flags.String("auth-method", "token", "Vault auth method: token, userpass, or approle")
 	authMount := flags.String("auth-mount", "", "Vault auth mount path (defaults to the method)")
@@ -80,6 +86,10 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "decode embedded configuration: %v\n", err)
 		return 1
 	}
+	cfg.Ceph.RGWRealm = *rgwRealm
+	cfg.Ceph.RGWZoneGroup = *rgwZoneGroup
+	cfg.Ceph.RGWZone = *rgwZone
+	cfg.Ceph.RGWPoolPrefix = *rgwPoolPrefix
 	cfg.Vault.Address = *address
 	cfg.Vault.Namespace = *namespace
 	cfg.Vault.Mount = *mount
@@ -105,6 +115,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	cfg.RookClusterName = *rookClusterName
+	if *includeDashboard {
+		cfg.Credentials = append(cfg.Credentials, credentialSpec{VaultPath: "rook-ceph-dashboard-link", Kind: "rook-dashboard"})
+	}
+	if *includeRGW {
+		cfg.Credentials = append(cfg.Credentials, credentialSpec{VaultPath: "rgw-admin-ops-user", Entity: "rgw-admin-ops-user", Kind: "rook-rgw-admin"})
+	}
 	validated := cfg
 	validated.applyDefaults()
 	if err := validated.validate(); err != nil {
@@ -116,6 +132,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", *output)
+	fmt.Fprintf(stdout, "run ceph-vault-sync bootstrap -config %s before starting the service\n", *output)
 	if cfg.Vault.Auth != nil {
 		switch cfg.Vault.Auth.Method {
 		case "userpass":
