@@ -169,6 +169,15 @@ for candidate in $configured "/var/lib/ceph/radosgw/ceph-rgw.$1/keyring" "/etc/c
 done
 exit 1`
 
+// PendingKeyAutoPromote assumes upstream Ceph, which always promotes, when the option is absent.
+func (source cephSource) PendingKeyAutoPromote(ctx context.Context) (bool, error) {
+	out, err := source.run(ctx, "config", "get", "mon", autoPromoteOption)
+	if err != nil {
+		return true, nil
+	}
+	return strings.TrimSpace(string(out)) != "false", nil
+}
+
 func (source cephSource) StagePendingKey(ctx context.Context, entity string) (string, error) {
 	out, err := source.run(ctx, "auth", "get-or-create-pending", entity, "--format", "json")
 	if err != nil {

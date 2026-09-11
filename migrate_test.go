@@ -22,6 +22,11 @@ type fakeMigrationSource struct {
 	restarted   []string
 	discoveries int
 	stuck       bool
+	manualOnly  bool
+}
+
+func (source *fakeMigrationSource) PendingKeyAutoPromote(context.Context) (bool, error) {
+	return !source.manualOnly, nil
 }
 
 func (source *fakeMigrationSource) DiscoverRGWDaemons(context.Context) ([]rgwDaemonConfig, error) {
@@ -147,6 +152,22 @@ func TestMigrateToSecureKeysPrefersConfiguredRGWDaemons(t *testing.T) {
 	}
 	if strings.Join(source.restarted, ",") != "client.rgw.k8s-staging.10.254.23.51" {
 		t.Fatalf("restarted = %q", strings.Join(source.restarted, ","))
+	}
+}
+
+func TestMigrateToSecureKeysRefusesWhilePromotionIsDisabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Ceph.MigrationHelper = []string{"/usr/share/pve-manager/migrations/pve-cephx-rotate-service-keys"}
+	source := observedMigrationSource(false)
+	source.manualOnly = true
+	vault := &fakeVault{values: map[string]vaultValue{}, writes: map[string]map[string]string{}}
+
+	_, err := migrateToSecureKeys(context.Background(), cfg, source, vault, true, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), autoPromoteOption) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(source.staged) != 0 || len(source.installed) != 0 || len(source.restarted) != 0 {
+		t.Fatalf("a blocked run still changed state: %+v", source)
 	}
 }
 

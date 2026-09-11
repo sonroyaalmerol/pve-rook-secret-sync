@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const secureKeyType = "aes256k"
+const (
+	secureKeyType     = "aes256k"
+	autoPromoteOption = "mon_auth_client_pending_key_auto_promote"
+)
 
 type authKeyState struct {
 	Current string
@@ -21,6 +24,7 @@ type migrationSource interface {
 	RunMigrationHelper(context.Context, bool) ([]byte, error)
 	AuthKeyStates(context.Context) (map[string]authKeyState, error)
 	DiscoverRGWDaemons(context.Context) ([]rgwDaemonConfig, error)
+	PendingKeyAutoPromote(context.Context) (bool, error)
 	StagePendingKey(context.Context, string) (string, error)
 	InstallRGWKey(context.Context, rgwDaemonConfig, string) error
 	RestartRGW(context.Context, rgwDaemonConfig) error
@@ -113,6 +117,9 @@ func migrateToSecureKeys(ctx context.Context, cfg config, source migrationSource
 			return cfg, err
 		}
 	}
+	if err := checkPendingKeyPromotion(ctx, cfg, source, daemons, states); err != nil {
+		return cfg, err
+	}
 	for _, daemon := range daemons {
 		if err := migrateRGWDaemon(ctx, source, daemon, states[daemon.Entity], dryRun, output); err != nil {
 			return cfg, err
@@ -128,6 +135,24 @@ func migrateToSecureKeys(ctx context.Context, cfg config, source migrationSource
 		return cfg, nil
 	}
 	return rotateCredentials(ctx, cfg, source, vault, dryRun, output)
+}
+
+func checkPendingKeyPromotion(ctx context.Context, cfg config, source migrationSource, daemons []rgwDaemonConfig, states map[string]authKeyState) error {
+	staging := false
+	for _, daemon := range daemons {
+		if states[daemon.Entity].Current != secureKeyType {
+			staging = true
+			break
+		}
+	}
+	if !staging {
+		return nil
+	}
+	promotes, err := source.PendingKeyAutoPromote(ctx)
+	if err != nil || promotes {
+		return err
+	}
+	return fmt.Errorf("the monitors keep %s disabled, so a staged RGW key is never promoted; the Proxmox helper holds it off while a client key of its own waits for an explicit commit, so finish that with %s first", autoPromoteOption, cfg.Ceph.MigrationHelper[0])
 }
 
 func migrateRGWDaemon(ctx context.Context, source migrationSource, daemon rgwDaemonConfig, state authKeyState, dryRun bool, output io.Writer) error {
