@@ -35,6 +35,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
+	if flags.NArg() != 0 {
+		fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
+		return 2
+	}
 	if *configPath == "" {
 		fmt.Fprintln(stderr, "-config is required")
 		return 2
