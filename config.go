@@ -20,30 +20,30 @@ type config struct {
 
 type cephConfig struct {
 	Transport    string   `json:"transport"`
-	Host         string   `json:"host"`
-	User         string   `json:"user"`
-	Port         int      `json:"port"`
+	Host         string   `json:"host,omitempty"`
+	User         string   `json:"user,omitempty"`
+	Port         int      `json:"port,omitempty"`
 	Command      []string `json:"command"`
 	Coordination string   `json:"coordination"`
-	ManagerName  string   `json:"manager_name"`
+	ManagerName  string   `json:"manager_name,omitempty"`
 }
 
 type vaultConfig struct {
 	Address    string `json:"address"`
-	Namespace  string `json:"namespace"`
+	Namespace  string `json:"namespace,omitempty"`
 	Mount      string `json:"mount"`
 	PathPrefix string `json:"path_prefix"`
-	TokenEnv   string `json:"token_env"`
-	TokenFile  string `json:"token_file"`
-	CACert     string `json:"ca_cert"`
-	AllowHTTP  bool   `json:"allow_http"`
+	TokenEnv   string `json:"token_env,omitempty"`
+	TokenFile  string `json:"token_file,omitempty"`
+	CACert     string `json:"ca_cert,omitempty"`
+	AllowHTTP  bool   `json:"allow_http,omitempty"`
 }
 
 type credentialSpec struct {
 	VaultPath string `json:"vault_path"`
 	Entity    string `json:"entity"`
 	Kind      string `json:"kind"`
-	UserID    string `json:"user_id"`
+	UserID    string `json:"user_id,omitempty"`
 }
 
 func loadConfig(name string) (config, error) {

@@ -48,33 +48,26 @@ Authentication uses `vault.token_file` when set, otherwise the environment varia
 
 ### PVE cluster
 
-Create the shared configuration once, on any cluster node:
+Generate the shared configuration once, on any cluster node:
 
 ```bash
-mkdir /etc/pve/priv/ceph-vault-sync
-cp /etc/ceph-vault-sync/config.json /etc/pve/priv/ceph-vault-sync/config.json
-editor /etc/pve/priv/ceph-vault-sync/config.json
+ceph-vault-sync init \
+  -vault-address https://vault.example.com:8200 \
+  -vault-namespace example \
+  -path-prefix rook-pve/staging
+```
+
+`init` writes `/etc/pve/priv/ceph-vault-sync/config.json` with local Ceph access, active-manager coordination, the five standard Rook credentials, and `/etc/pve/priv/ceph-vault-sync/vault-token`. It creates parent directories and refuses to overwrite an existing configuration. Use `-output`, `-token-file`, `-vault-mount`, `-ca-cert`, or `-rook-cluster-name` to change those defaults.
+
+Write the token separately so it never appears in command arguments:
+
+```bash
 read -rsp 'Vault token: ' VAULT_TOKEN
 printf '%s\n' "$VAULT_TOKEN" > /etc/pve/priv/ceph-vault-sync/vault-token
 unset VAULT_TOKEN
 ```
 
-Set the shared configuration to use local Ceph access, active-manager coordination, and the shared token file:
-
-```json
-{
-  "ceph": {
-    "transport": "local",
-    "command": ["ceph"],
-    "coordination": "active-manager"
-  },
-  "vault": {
-    "token_file": "/etc/pve/priv/ceph-vault-sync/vault-token"
-  }
-}
-```
-
-Keep the other required Vault and credential fields from the packaged configuration. The service automatically prefers `/etc/pve/priv/ceph-vault-sync/config.json` and falls back to `/etc/ceph-vault-sync/config.json` when the shared file does not exist.
+The service automatically prefers the generated shared configuration and falls back to `/etc/ceph-vault-sync/config.json` when the shared file does not exist.
 
 `pmxcfs` replicates the private directory across the cluster and makes it root-only. It controls permissions by path, so do not run `chmod` inside `/etc/pve`. Store only small, infrequently changed configuration there, not logs or runtime state.
 

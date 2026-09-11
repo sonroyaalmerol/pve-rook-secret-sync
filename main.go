@@ -15,7 +15,9 @@ import (
 var errDrift = errors.New("credentials differ from Vault")
 
 const (
+	pvePrivatePath   = "/etc/pve/priv"
 	sharedConfigPath = "/etc/pve/priv/ceph-vault-sync/config.json"
+	sharedTokenPath  = "/etc/pve/priv/ceph-vault-sync/vault-token"
 	localConfigPath  = "/etc/ceph-vault-sync/config.json"
 )
 
@@ -29,7 +31,14 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <-chan os.Signal) int {
-	if len(args) == 0 || args[0] != "sync" {
+	if len(args) == 0 {
+		printUsage(stderr)
+		return 2
+	}
+	if args[0] == "init" {
+		return runInit(args[1:], stdout, stderr)
+	}
+	if args[0] != "sync" {
 		printUsage(stderr)
 		return 2
 	}
@@ -42,6 +51,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 	timeout := flags.Duration("timeout", 30*time.Second, "overall operation timeout")
 	interval := flags.Duration("interval", 0, "repeat synchronization at this interval")
 	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if flags.NArg() != 0 {
@@ -123,5 +135,7 @@ func preferredConfigPath(shared, local string) string {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: ceph-vault-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  ceph-vault-sync init -vault-address URL -path-prefix PATH [OPTIONS]")
+	fmt.Fprintln(w, "  ceph-vault-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
 }
