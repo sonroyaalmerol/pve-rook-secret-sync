@@ -107,10 +107,10 @@ func rotateCredentials(ctx context.Context, cfg config, source rotationSource, v
 		rotatable++
 		entity := activeCredential(credential, next.CephXGeneration).Entity
 		if dryRun {
-			fmt.Fprintf(output, "%s: would-create with aes256k\n", entity)
+			fmt.Fprintf(output, "%s: would-create with %s\n", entity, secureKeyType)
 			continue
 		}
-		if err := source.CreateKey(ctx, entity, caps, "aes256k"); err != nil {
+		if err := source.CreateKey(ctx, entity, caps, secureKeyType); err != nil {
 			return cfg, err
 		}
 		fmt.Fprintf(output, "%s: created or already exists\n", entity)

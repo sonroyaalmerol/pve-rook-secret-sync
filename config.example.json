@@ -2,7 +2,6 @@
   "ceph": {
     "transport": "local",
     "command": ["ceph"],
-    "rbd_command": ["rbd"],
     "rgw_command": ["radosgw-admin"],
     "rgw_pool_prefix": "default",
     "coordination": "active-manager"

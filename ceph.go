@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -101,23 +102,6 @@ func (source cephSource) Credential(ctx context.Context, credential credentialSp
 	}
 }
 
-func (source cephSource) InitRBDPool(ctx context.Context, pool string) error {
-	if _, err := source.runCommand(ctx, source.config.RBDCommand, "pool", "init", pool); err != nil {
-		return fmt.Errorf("initialize RBD pool %s: %w", pool, err)
-	}
-	return nil
-}
-
-func (source cephSource) EnsureCephFSSubvolumeGroup(ctx context.Context, filesystem string) error {
-	if _, err := source.run(ctx, "fs", "subvolumegroup", "create", filesystem, "csi"); err != nil {
-		return fmt.Errorf("create CephFS csi subvolume group: %w", err)
-	}
-	if _, err := source.run(ctx, "fs", "subvolumegroup", "pin", filesystem, "csi", "distributed", "1"); err != nil {
-		return fmt.Errorf("pin CephFS csi subvolume group: %w", err)
-	}
-	return nil
-}
-
 func (source cephSource) CreateKey(ctx context.Context, entity string, caps []string, keyType string) error {
 	args := append([]string{"auth", "get-or-create", entity}, caps...)
 	args = append(args, "--format", "json")
@@ -126,6 +110,59 @@ func (source cephSource) CreateKey(ctx context.Context, entity string, caps []st
 	}
 	if _, err := source.run(ctx, args...); err != nil {
 		return fmt.Errorf("create CephX entity %s: %w", entity, err)
+	}
+	return nil
+}
+
+func (source cephSource) RunMigrationHelper(ctx context.Context, apply bool) ([]byte, error) {
+	args := []string{"--rotate-cluster-keys", "--rotate-admin-key"}
+	if apply {
+		args = append([]string{"--apply", "--assume-yes"}, args...)
+	}
+	out, err := source.runCommand(ctx, source.config.MigrationHelper, args...)
+	if err != nil {
+		return nil, fmt.Errorf("run PVE CephX migration helper: %w", err)
+	}
+	return out, nil
+}
+
+func (source cephSource) AuthKeyStates(ctx context.Context) (map[string]authKeyState, error) {
+	out, err := source.run(ctx, "auth", "dump-keys", "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("inventory CephX keys: %w", err)
+	}
+	return parseAuthKeyStates(out)
+}
+
+func (source cephSource) StagePendingKey(ctx context.Context, entity string) (string, error) {
+	out, err := source.run(ctx, "auth", "get-or-create-pending", entity, "--format", "json")
+	if err != nil {
+		return "", fmt.Errorf("stage CephX key for %s: %w", entity, err)
+	}
+	var entries []struct {
+		PendingKey string `json:"pending_key"`
+	}
+	if err := json.Unmarshal(out, &entries); err != nil || len(entries) != 1 || entries[0].PendingKey == "" {
+		return "", fmt.Errorf("decode pending CephX key for %s", entity)
+	}
+	return entries[0].PendingKey, nil
+}
+
+func (source cephSource) InstallRGWKey(ctx context.Context, daemon rgwDaemonConfig, key string) error {
+	keyring := fmt.Sprintf("[%s]\n\tkey = %s\n", daemon.Entity, key)
+	script := `set -eu; test -f "$1"; tmp=$(mktemp -- "$1.XXXXXX"); trap 'rm -f -- "$tmp"' EXIT; cat >"$tmp"; chmod --reference="$1" -- "$tmp"; chown --reference="$1" -- "$tmp"; mv -- "$tmp" "$1"; trap - EXIT`
+	if _, err := source.runHostCommand(ctx, daemon.Host, strings.NewReader(keyring), "sh", "-c", script, "sh", daemon.Keyring); err != nil {
+		return fmt.Errorf("install keyring %s on %s: %w", daemon.Keyring, daemon.Host, err)
+	}
+	return nil
+}
+
+func (source cephSource) RestartRGW(ctx context.Context, daemon rgwDaemonConfig) error {
+	if _, err := source.runHostCommand(ctx, daemon.Host, nil, "systemctl", "restart", "--", daemon.Unit); err != nil {
+		return fmt.Errorf("restart %s on %s: %w", daemon.Unit, daemon.Host, err)
+	}
+	if _, err := source.runHostCommand(ctx, daemon.Host, nil, "systemctl", "is-active", "--quiet", "--", daemon.Unit); err != nil {
+		return fmt.Errorf("verify %s on %s: %w", daemon.Unit, daemon.Host, err)
 	}
 	return nil
 }
@@ -203,6 +240,69 @@ func (source cephSource) runCommand(ctx context.Context, command []string, args 
 		}
 	}
 	return nil, fmt.Errorf("command failed: %w", err)
+}
+
+func (source cephSource) runHostCommand(ctx context.Context, host string, stdin io.Reader, args ...string) ([]byte, error) {
+	target := host
+	if source.config.User != "" {
+		target = source.config.User + "@" + host
+	}
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-p", strconv.Itoa(source.config.Port), target, strings.Join(quoted, " "))
+	cmd.Stdin = stdin
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if message := strings.TrimSpace(string(exitErr.Stderr)); message != "" {
+			return nil, fmt.Errorf("command failed: %s", message)
+		}
+	}
+	return nil, fmt.Errorf("command failed: %w", err)
+}
+
+func parseAuthKeyStates(out []byte) (map[string]authKeyState, error) {
+	var dump struct {
+		Data struct {
+			Secrets []struct {
+				Entity struct {
+					Type string `json:"type_str"`
+					ID   string `json:"id"`
+				} `json:"entity"`
+				Auth struct {
+					Key struct {
+						Type string `json:"type_str"`
+					} `json:"key"`
+					PendingKey struct {
+						Type string `json:"type_str"`
+					} `json:"pending_key"`
+				} `json:"auth"`
+			} `json:"secrets"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &dump); err != nil {
+		return nil, fmt.Errorf("decode CephX key inventory: %w", err)
+	}
+	states := make(map[string]authKeyState, len(dump.Data.Secrets))
+	for _, secret := range dump.Data.Secrets {
+		if secret.Entity.Type == "" || secret.Entity.ID == "" {
+			continue
+		}
+		pending := secret.Auth.PendingKey.Type
+		if pending == "none" {
+			pending = ""
+		}
+		states[secret.Entity.Type+"."+secret.Entity.ID] = authKeyState{Current: secret.Auth.Key.Type, Pending: pending}
+	}
+	if len(states) == 0 {
+		return nil, errors.New("decode CephX key inventory: no entities")
+	}
+	return states, nil
 }
 
 func parseMonConfig(out []byte) (map[string]string, error) {

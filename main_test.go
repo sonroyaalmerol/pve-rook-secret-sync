@@ -60,7 +60,7 @@ func TestRunBootstrapHelp(t *testing.T) {
 }
 
 func TestRunMigrationCommandHelp(t *testing.T) {
-	for _, command := range []string{"bundle", "provision", "rotate"} {
+	for _, command := range []string{"migrate", "rotate"} {
 		t.Run(command, func(t *testing.T) {
 			var stderr bytes.Buffer
 			if code := run(context.Background(), []string{command, "-h"}, io.Discard, &stderr, nil); code != 0 {

@@ -12,27 +12,35 @@ import (
 )
 
 type config struct {
-	Ceph             cephConfig       `json:"ceph"`
-	Vault            vaultConfig      `json:"vault"`
-	RookClusterName  string           `json:"rook_cluster_name"`
-	CephXGeneration  int              `json:"cephx_generation,omitempty"`
-	Credentials      []credentialSpec `json:"credentials"`
+	Ceph            cephConfig       `json:"ceph"`
+	Vault           vaultConfig      `json:"vault"`
+	RookClusterName string           `json:"rook_cluster_name"`
+	CephXGeneration int              `json:"cephx_generation,omitempty"`
+	Credentials     []credentialSpec `json:"credentials"`
 }
 
 type cephConfig struct {
-	Transport     string   `json:"transport"`
-	Host          string   `json:"host,omitempty"`
-	User          string   `json:"user,omitempty"`
-	Port          int      `json:"port,omitempty"`
-	Command       []string `json:"command"`
-	RBDCommand    []string `json:"rbd_command,omitempty"`
-	RGWCommand    []string `json:"rgw_command,omitempty"`
-	RGWRealm      string   `json:"rgw_realm,omitempty"`
-	RGWZoneGroup  string   `json:"rgw_zonegroup,omitempty"`
-	RGWZone       string   `json:"rgw_zone,omitempty"`
-	RGWPoolPrefix string   `json:"rgw_pool_prefix,omitempty"`
-	Coordination  string   `json:"coordination"`
-	ManagerName   string   `json:"manager_name,omitempty"`
+	Transport       string            `json:"transport"`
+	Host            string            `json:"host,omitempty"`
+	User            string            `json:"user,omitempty"`
+	Port            int               `json:"port,omitempty"`
+	Command         []string          `json:"command"`
+	RGWCommand      []string          `json:"rgw_command,omitempty"`
+	MigrationHelper []string          `json:"migration_helper,omitempty"`
+	RGWRealm        string            `json:"rgw_realm,omitempty"`
+	RGWZoneGroup    string            `json:"rgw_zonegroup,omitempty"`
+	RGWZone         string            `json:"rgw_zone,omitempty"`
+	RGWPoolPrefix   string            `json:"rgw_pool_prefix,omitempty"`
+	RGWDaemons      []rgwDaemonConfig `json:"rgw_daemons,omitempty"`
+	Coordination    string            `json:"coordination"`
+	ManagerName     string            `json:"manager_name,omitempty"`
+}
+
+type rgwDaemonConfig struct {
+	Entity  string `json:"entity"`
+	Host    string `json:"host"`
+	Unit    string `json:"unit"`
+	Keyring string `json:"keyring"`
 }
 
 type vaultConfig struct {
@@ -104,11 +112,11 @@ func (cfg *config) applyDefaults() {
 	if len(cfg.Ceph.Command) == 0 {
 		cfg.Ceph.Command = []string{"ceph"}
 	}
-	if len(cfg.Ceph.RBDCommand) == 0 {
-		cfg.Ceph.RBDCommand = []string{"rbd"}
-	}
 	if len(cfg.Ceph.RGWCommand) == 0 {
 		cfg.Ceph.RGWCommand = []string{"radosgw-admin"}
+	}
+	if len(cfg.Ceph.MigrationHelper) == 0 {
+		cfg.Ceph.MigrationHelper = []string{"/usr/share/pve-manager/migrations/pve-cephx-rotate-service-keys"}
 	}
 	if cfg.Ceph.RGWPoolPrefix == "" {
 		cfg.Ceph.RGWPoolPrefix = "default"
@@ -158,11 +166,30 @@ func (cfg config) validate() error {
 	if len(cfg.Ceph.Command) == 0 || cfg.Ceph.Command[0] == "" {
 		return errors.New("ceph.command must not be empty")
 	}
-	if len(cfg.Ceph.RBDCommand) == 0 || cfg.Ceph.RBDCommand[0] == "" {
-		return errors.New("ceph.rbd_command must not be empty")
-	}
 	if len(cfg.Ceph.RGWCommand) == 0 || cfg.Ceph.RGWCommand[0] == "" {
 		return errors.New("ceph.rgw_command must not be empty")
+	}
+	if len(cfg.Ceph.MigrationHelper) == 0 || cfg.Ceph.MigrationHelper[0] == "" {
+		return errors.New("ceph.migration_helper must not be empty")
+	}
+	daemons := make(map[string]struct{}, len(cfg.Ceph.RGWDaemons))
+	for i, daemon := range cfg.Ceph.RGWDaemons {
+		if !strings.HasPrefix(daemon.Entity, "client.rgw.") {
+			return fmt.Errorf("ceph.rgw_daemons[%d].entity must name a client.rgw entity", i)
+		}
+		if daemon.Host == "" {
+			return fmt.Errorf("ceph.rgw_daemons[%d].host is required", i)
+		}
+		if daemon.Unit == "" {
+			return fmt.Errorf("ceph.rgw_daemons[%d].unit is required", i)
+		}
+		if !filepath.IsAbs(daemon.Keyring) {
+			return fmt.Errorf("ceph.rgw_daemons[%d].keyring must be an absolute path", i)
+		}
+		if _, exists := daemons[daemon.Entity]; exists {
+			return fmt.Errorf("duplicate ceph.rgw_daemons entity %q", daemon.Entity)
+		}
+		daemons[daemon.Entity] = struct{}{}
 	}
 	if cfg.Ceph.Coordination != "active-manager" && cfg.Ceph.Coordination != "none" {
 		return errors.New("ceph.coordination must be active-manager or none")
