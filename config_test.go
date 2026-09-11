@@ -47,6 +47,8 @@ func TestConfigValidation(t *testing.T) {
 	}{
 		{"unknown coordination", func(cfg *config) { cfg.Ceph.Coordination = "all-hosts" }, "coordination must be"},
 		{"remote HTTP", func(cfg *config) { cfg.Vault.Address = "http://vault.example.com" }, "must use HTTPS"},
+		{"URL path", func(cfg *config) { cfg.Vault.Address = "https://vault.example.com/proxy" }, "must not include"},
+		{"URL query", func(cfg *config) { cfg.Vault.Address = "https://vault.example.com?target=other" }, "must not include"},
 		{"parent path", func(cfg *config) { cfg.Vault.PathPrefix = "rook/../other" }, "parent segments"},
 		{"duplicate path", func(cfg *config) { cfg.Credentials = append(cfg.Credentials, cfg.Credentials[0]) }, "duplicate"},
 		{"unknown kind", func(cfg *config) { cfg.Credentials[0].Kind = "generic" }, "kind must be"},

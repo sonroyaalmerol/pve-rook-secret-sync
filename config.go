@@ -132,6 +132,9 @@ func (cfg config) validate() error {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return errors.New("vault.address must be an absolute HTTP URL")
 	}
+	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("vault.address must not include user info, a path, query, or fragment")
+	}
 	if u.Scheme == "http" && !cfg.Vault.AllowHTTP && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
 		return errors.New("vault.address must use HTTPS unless allow_http is true")
 	}
