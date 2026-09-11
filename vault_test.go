@@ -158,7 +158,7 @@ func TestVaultClientUserpassLoginAndCache(t *testing.T) {
 				t.Error(err)
 			}
 			logins++
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins)))
+			_, _ = w.Write(fmt.Appendf(nil, `{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins))
 		case r.URL.Path == "/v1/secret/data/rook/mon":
 			if r.Header.Get("X-Vault-Token") == "" {
 				w.WriteHeader(http.StatusForbidden)
@@ -261,7 +261,7 @@ func TestVaultClientReloginsWhenCachedTokenRevoked(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/userpass/login/alice":
 			logins++
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins)))
+			_, _ = w.Write(fmt.Appendf(nil, `{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins))
 		case r.URL.Path == "/v1/secret/data/rook/mon":
 			if r.Header.Get("X-Vault-Token") != "tok2" {
 				w.WriteHeader(http.StatusForbidden)

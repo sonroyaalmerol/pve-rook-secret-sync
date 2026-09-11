@@ -60,6 +60,7 @@ func synchronize(ctx context.Context, cfg config, source cephReader, vault vault
 
 	values := make(map[string]map[string]string, len(cfg.Credentials))
 	for _, credential := range cfg.Credentials {
+		credential = activeCredential(credential, cfg.CephXGeneration)
 		value, err := source.Credential(ctx, credential)
 		if err != nil {
 			return err
@@ -132,6 +133,7 @@ func buildDesired(cfg config, fsid string, values map[string]map[string]string) 
 
 	result := make([]desiredSecret, 0, len(cfg.Credentials))
 	for _, credential := range cfg.Credentials {
+		credential = activeCredential(credential, cfg.CephXGeneration)
 		data, err := renderCredential(cfg, fsid, credential, values[credential.VaultPath])
 		if err != nil {
 			return nil, err
@@ -223,6 +225,7 @@ func renderCredential(cfg config, fsid string, credential credentialSpec, value 
 func credentialGeneration(fsid string, cfg config, values map[string]map[string]string) (string, error) {
 	parts := make([]string, 0, len(cfg.Credentials))
 	for _, credential := range cfg.Credentials {
+		credential = activeCredential(credential, cfg.CephXGeneration)
 		data, err := renderCredential(cfg, fsid, credential, values[credential.VaultPath])
 		if err != nil {
 			return "", err

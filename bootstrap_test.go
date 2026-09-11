@@ -25,7 +25,7 @@ func (source *fakeBootstrapSource) Key(_ context.Context, entity string) (string
 	return "", errors.New("missing")
 }
 
-func (source *fakeBootstrapSource) CreateKey(_ context.Context, entity string, caps []string) error {
+func (source *fakeBootstrapSource) CreateKey(_ context.Context, entity string, caps []string, _ string) error {
 	source.createdKeys = append(source.createdKeys, entity)
 	source.createdCaps[entity] = caps
 	return nil

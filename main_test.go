@@ -59,6 +59,20 @@ func TestRunBootstrapHelp(t *testing.T) {
 	}
 }
 
+func TestRunMigrationCommandHelp(t *testing.T) {
+	for _, command := range []string{"bundle", "provision", "rotate"} {
+		t.Run(command, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := run(context.Background(), []string{command, "-h"}, io.Discard, &stderr, nil); code != 0 {
+				t.Fatalf("exit code = %d, want 0", code)
+			}
+			if stderr.Len() == 0 {
+				t.Fatal("help was empty")
+			}
+		})
+	}
+}
+
 func TestWatchRunsImmediatelyAndOnSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	trigger := make(chan os.Signal, 1)

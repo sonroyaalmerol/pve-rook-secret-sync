@@ -12,10 +12,11 @@ import (
 )
 
 type config struct {
-	Ceph            cephConfig       `json:"ceph"`
-	Vault           vaultConfig      `json:"vault"`
-	RookClusterName string           `json:"rook_cluster_name"`
-	Credentials     []credentialSpec `json:"credentials"`
+	Ceph             cephConfig       `json:"ceph"`
+	Vault            vaultConfig      `json:"vault"`
+	RookClusterName  string           `json:"rook_cluster_name"`
+	CephXGeneration  int              `json:"cephx_generation,omitempty"`
+	Credentials      []credentialSpec `json:"credentials"`
 }
 
 type cephConfig struct {
@@ -24,6 +25,7 @@ type cephConfig struct {
 	User          string   `json:"user,omitempty"`
 	Port          int      `json:"port,omitempty"`
 	Command       []string `json:"command"`
+	RBDCommand    []string `json:"rbd_command,omitempty"`
 	RGWCommand    []string `json:"rgw_command,omitempty"`
 	RGWRealm      string   `json:"rgw_realm,omitempty"`
 	RGWZoneGroup  string   `json:"rgw_zonegroup,omitempty"`
@@ -102,6 +104,9 @@ func (cfg *config) applyDefaults() {
 	if len(cfg.Ceph.Command) == 0 {
 		cfg.Ceph.Command = []string{"ceph"}
 	}
+	if len(cfg.Ceph.RBDCommand) == 0 {
+		cfg.Ceph.RBDCommand = []string{"rbd"}
+	}
 	if len(cfg.Ceph.RGWCommand) == 0 {
 		cfg.Ceph.RGWCommand = []string{"radosgw-admin"}
 	}
@@ -152,6 +157,9 @@ func (cfg config) validate() error {
 	}
 	if len(cfg.Ceph.Command) == 0 || cfg.Ceph.Command[0] == "" {
 		return errors.New("ceph.command must not be empty")
+	}
+	if len(cfg.Ceph.RBDCommand) == 0 || cfg.Ceph.RBDCommand[0] == "" {
+		return errors.New("ceph.rbd_command must not be empty")
 	}
 	if len(cfg.Ceph.RGWCommand) == 0 || cfg.Ceph.RGWCommand[0] == "" {
 		return errors.New("ceph.rgw_command must not be empty")
@@ -212,6 +220,9 @@ func (cfg config) validate() error {
 
 	if cfg.RookClusterName == "" {
 		return errors.New("rook_cluster_name is required")
+	}
+	if cfg.CephXGeneration < 0 {
+		return errors.New("cephx_generation must not be negative")
 	}
 	if len(cfg.Credentials) == 0 {
 		return errors.New("at least one credential is required")

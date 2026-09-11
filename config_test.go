@@ -22,7 +22,7 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Ceph.Transport != "ssh" || cfg.Ceph.User != "root" || cfg.Ceph.Port != 22 || cfg.Ceph.Coordination != "active-manager" || cfg.Ceph.RGWPoolPrefix != "default" || len(cfg.Ceph.RGWCommand) != 1 || cfg.Ceph.RGWCommand[0] != "radosgw-admin" {
+	if cfg.Ceph.Transport != "ssh" || cfg.Ceph.User != "root" || cfg.Ceph.Port != 22 || cfg.Ceph.Coordination != "active-manager" || cfg.Ceph.RGWPoolPrefix != "default" || len(cfg.Ceph.RBDCommand) != 1 || cfg.Ceph.RBDCommand[0] != "rbd" || len(cfg.Ceph.RGWCommand) != 1 || cfg.Ceph.RGWCommand[0] != "radosgw-admin" {
 		t.Fatalf("unexpected Ceph defaults: %+v", cfg.Ceph)
 	}
 	if cfg.Vault.Address != "https://vault.example.com" || cfg.Vault.TokenEnv != "VAULT_TOKEN" || cfg.Vault.TokenFile != "/etc/pve/priv/pve-rook-secret-sync/vault-token" {
@@ -35,7 +35,7 @@ func TestLoadConfig(t *testing.T) {
 
 func TestConfigAuthDefaults(t *testing.T) {
 	cfg := config{
-		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
+		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RBDCommand: []string{"rbd"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
 		Vault:           vaultConfig{Address: "https://vault.example.com", Mount: "secret", PathPrefix: "rook/staging", Auth: &vaultAuthConfig{Method: "userpass", Username: "alice", PasswordFile: "/pw"}},
 		RookClusterName: "rook-ceph",
 		Credentials:     []credentialSpec{{VaultPath: "mon", Entity: "client.healthchecker", Kind: "rook-mon"}},
@@ -59,7 +59,7 @@ func TestConfigAuthDefaults(t *testing.T) {
 
 func TestConfigValidation(t *testing.T) {
 	base := config{
-		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
+		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RBDCommand: []string{"rbd"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
 		Vault:           vaultConfig{Address: "https://vault.example.com", Mount: "secret", PathPrefix: "rook/staging"},
 		RookClusterName: "rook-ceph",
 		Credentials:     []credentialSpec{{VaultPath: "mon", Entity: "client.healthchecker", Kind: "rook-mon"}},
@@ -70,6 +70,7 @@ func TestConfigValidation(t *testing.T) {
 		match  string
 	}{
 		{"unknown coordination", func(cfg *config) { cfg.Ceph.Coordination = "all-hosts" }, "coordination must be"},
+		{"negative CephX generation", func(cfg *config) { cfg.CephXGeneration = -1 }, "cephx_generation"},
 		{"remote HTTP", func(cfg *config) { cfg.Vault.Address = "http://vault.example.com" }, "must use HTTPS"},
 		{"URL path", func(cfg *config) { cfg.Vault.Address = "https://vault.example.com/proxy" }, "must not include"},
 		{"URL query", func(cfg *config) { cfg.Vault.Address = "https://vault.example.com?target=other" }, "must not include"},
@@ -101,7 +102,7 @@ func TestConfigValidation(t *testing.T) {
 
 func TestConfigAllowsEntitylessMetadata(t *testing.T) {
 	cfg := config{
-		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
+		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, RBDCommand: []string{"rbd"}, RGWCommand: []string{"radosgw-admin"}, Coordination: "active-manager"},
 		Vault:           vaultConfig{Address: "https://vault.example.com", Mount: "secret", PathPrefix: "rook/staging"},
 		RookClusterName: "rook-ceph",
 		Credentials: []credentialSpec{

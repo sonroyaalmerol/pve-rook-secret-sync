@@ -11,7 +11,7 @@ import (
 
 type bootstrapSource interface {
 	Key(context.Context, string) (string, error)
-	CreateKey(context.Context, string, []string) error
+	CreateKey(context.Context, string, []string, string) error
 	RGWCredentials(context.Context, string) (map[string]string, error)
 	EnsureRGWAdmin(context.Context, string) (bool, error)
 }
@@ -75,7 +75,7 @@ func bootstrap(ctx context.Context, cfg config, source bootstrapSource, dryRun b
 				fmt.Fprintf(output, "%s: would-create\n", credential.Entity)
 				continue
 			}
-			if err := source.CreateKey(ctx, credential.Entity, caps); err != nil {
+			if err := source.CreateKey(ctx, credential.Entity, caps, ""); err != nil {
 				return err
 			}
 			fmt.Fprintf(output, "%s: created\n", credential.Entity)

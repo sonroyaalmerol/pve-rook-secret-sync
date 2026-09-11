@@ -2,6 +2,7 @@
   "ceph": {
     "transport": "local",
     "command": ["ceph"],
+    "rbd_command": ["rbd"],
     "rgw_command": ["radosgw-admin"],
     "rgw_pool_prefix": "default",
     "coordination": "active-manager"
@@ -15,6 +16,7 @@
     "token_file": ""
   },
   "rook_cluster_name": "rook-ceph",
+  "cephx_generation": 0,
   "credentials": [
     {
       "vault_path": "rook-ceph-mon",

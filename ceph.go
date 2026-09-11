@@ -57,6 +57,14 @@ func (source cephSource) FSID(ctx context.Context) (string, error) {
 	return fsid, nil
 }
 
+func (source cephSource) Version(ctx context.Context) (cephVersion, error) {
+	out, err := source.run(ctx, "version")
+	if err != nil {
+		return cephVersion{}, fmt.Errorf("read Ceph version: %w", err)
+	}
+	return parseCephVersion(string(out))
+}
+
 func (source cephSource) Key(ctx context.Context, entity string) (string, error) {
 	out, err := source.run(ctx, "auth", "get-key", entity)
 	if err != nil {
@@ -93,9 +101,29 @@ func (source cephSource) Credential(ctx context.Context, credential credentialSp
 	}
 }
 
-func (source cephSource) CreateKey(ctx context.Context, entity string, caps []string) error {
+func (source cephSource) InitRBDPool(ctx context.Context, pool string) error {
+	if _, err := source.runCommand(ctx, source.config.RBDCommand, "pool", "init", pool); err != nil {
+		return fmt.Errorf("initialize RBD pool %s: %w", pool, err)
+	}
+	return nil
+}
+
+func (source cephSource) EnsureCephFSSubvolumeGroup(ctx context.Context, filesystem string) error {
+	if _, err := source.run(ctx, "fs", "subvolumegroup", "create", filesystem, "csi"); err != nil {
+		return fmt.Errorf("create CephFS csi subvolume group: %w", err)
+	}
+	if _, err := source.run(ctx, "fs", "subvolumegroup", "pin", filesystem, "csi", "distributed", "1"); err != nil {
+		return fmt.Errorf("pin CephFS csi subvolume group: %w", err)
+	}
+	return nil
+}
+
+func (source cephSource) CreateKey(ctx context.Context, entity string, caps []string, keyType string) error {
 	args := append([]string{"auth", "get-or-create", entity}, caps...)
 	args = append(args, "--format", "json")
+	if keyType != "" {
+		args = append(args, "--key-type", keyType)
+	}
 	if _, err := source.run(ctx, args...); err != nil {
 		return fmt.Errorf("create CephX entity %s: %w", entity, err)
 	}
@@ -285,8 +313,8 @@ func canonicalManagerName(value string) string {
 	if net.ParseIP(value) != nil {
 		return value
 	}
-	if i := strings.IndexByte(value, '.'); i >= 0 {
-		return value[:i]
+	if before, _, ok := strings.Cut(value, "."); ok {
+		return before
 	}
 	return value
 }

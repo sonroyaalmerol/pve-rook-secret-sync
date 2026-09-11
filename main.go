@@ -43,6 +43,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 	if args[0] == "bootstrap" {
 		return runBootstrap(ctx, args[1:], stdout, stderr)
 	}
+	if args[0] == "rotate" {
+		return runRotate(ctx, args[1:], stdout, stderr)
+	}
+	if args[0] == "provision" {
+		return runProvision(ctx, args[1:], stdout, stderr)
+	}
+	if args[0] == "bundle" {
+		return runBundle(ctx, args[1:], stdout, stderr)
+	}
 	if args[0] != "sync" {
 		printUsage(stderr)
 		return 2
@@ -144,5 +153,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  pve-rook-secret-sync init -vault-address URL -path-prefix PATH [OPTIONS]")
 	fmt.Fprintln(w, "  pve-rook-secret-sync bootstrap [-config FILE] [-dry-run] [-timeout DURATION]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync bundle -output DIR -secret-store NAME [-rbd-pool POOL] [-cephfs-name FS -cephfs-pool POOL]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync provision [-config FILE] [-rbd-pool POOL] [-cephfs-name FS] [-dry-run]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync rotate [-config FILE] [-dry-run] [-timeout DURATION]")
 	fmt.Fprintln(w, "  pve-rook-secret-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
 }
