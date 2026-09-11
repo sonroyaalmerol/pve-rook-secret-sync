@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseActiveManager(t *testing.T) {
 	name, err := parseActiveManager([]byte(`{"active_name":"pve1"}`))
@@ -65,6 +68,20 @@ func TestManagerNamesMatch(t *testing.T) {
 		if got := managerNamesMatch(test.local, test.active); got != test.want {
 			t.Errorf("managerNamesMatch(%q, %q) = %v, want %v", test.local, test.active, got, test.want)
 		}
+	}
+}
+
+func TestSSHHostOptions(t *testing.T) {
+	plain := strings.Join(sshHostOptions("vm-lan-1.example.com", ""), " ")
+	if !strings.Contains(plain, "HostKeyAlias=vm-lan-1") || !strings.Contains(plain, "BatchMode=yes") {
+		t.Fatalf("options = %q", plain)
+	}
+	if strings.Contains(plain, "UserKnownHostsFile") {
+		t.Fatalf("missing host key file was still referenced: %q", plain)
+	}
+	cluster := strings.Join(sshHostOptions("vm-lan-1", "/etc/pve/nodes/vm-lan-1/ssh_known_hosts"), " ")
+	if !strings.Contains(cluster, "UserKnownHostsFile=/etc/pve/nodes/vm-lan-1/ssh_known_hosts") || !strings.Contains(cluster, "GlobalKnownHostsFile=none") {
+		t.Fatalf("options = %q", cluster)
 	}
 }
 

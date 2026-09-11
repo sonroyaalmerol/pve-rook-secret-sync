@@ -261,6 +261,8 @@ RGW daemon keys are not owned by the Proxmox helper. They are discovered from `c
 }
 ```
 
+A daemon on the node running the command is handled locally. Reaching any other daemon needs root SSH access from this node to its host. On a PVE cluster that works without setup: host keys are pinned to `/etc/pve/nodes/<node>/ssh_known_hosts` under the node name, as `PVE::SSHInfo` does, because plain SSH between PVE nodes fails host key verification.
+
 Listing any daemon replaces discovery entirely. Daemons migrate one at a time. Each one gets a pending AES256K key next to its current key, receives the new keyring over SSH, and restarts. Ceph promotes a pending key only when the daemon authenticates with it, so the promotion is the proof that the restart succeeded. A daemon that does not come back keeps its working key and stops the run before any later daemon or Rook credential changes.
 
 Restrict the monitors to AES256K with `ceph mon set auth_allowed_ciphers aes256k` only after `ceph health detail` reports no remaining insecure key, including keys held by consumers this tool does not manage. Restricting ciphers while any key is incompatible can make the cluster unavailable.

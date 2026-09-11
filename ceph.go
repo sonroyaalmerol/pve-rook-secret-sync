@@ -148,7 +148,7 @@ func (source cephSource) DiscoverRGWDaemons(ctx context.Context) ([]rgwDaemonCon
 		id := strings.TrimPrefix(daemon.Entity, "client.rgw.")
 		location, err := source.runHostCommand(ctx, daemon.Host, nil, "sh", "-c", locateRGWScript, "sh", id)
 		if err != nil {
-			return nil, fmt.Errorf("locate %s on %s: %w; configure ceph.rgw_daemons instead", daemon.Entity, daemon.Host, err)
+			return nil, fmt.Errorf("locate %s on %s: %w; migration needs root SSH access from this node to %s", daemon.Entity, daemon.Host, err, daemon.Host)
 		}
 		fields := strings.Fields(string(location))
 		if len(fields) != 2 {
@@ -278,15 +278,21 @@ func (source cephSource) runCommand(ctx context.Context, command []string, args 
 }
 
 func (source cephSource) runHostCommand(ctx context.Context, host string, stdin io.Reader, args ...string) ([]byte, error) {
-	target := host
-	if source.config.User != "" {
-		target = source.config.User + "@" + host
+	var cmd *exec.Cmd
+	if isLocalHost(host) {
+		cmd = exec.CommandContext(ctx, args[0], args[1:]...)
+	} else {
+		target := host
+		if source.config.User != "" {
+			target = source.config.User + "@" + host
+		}
+		quoted := make([]string, len(args))
+		for i, arg := range args {
+			quoted[i] = shellQuote(arg)
+		}
+		options := append(sshHostOptions(host, pveKnownHosts(host)), "-p", strconv.Itoa(source.config.Port), target, strings.Join(quoted, " "))
+		cmd = exec.CommandContext(ctx, "ssh", options...)
 	}
-	quoted := make([]string, len(args))
-	for i, arg := range args {
-		quoted[i] = shellQuote(arg)
-	}
-	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-p", strconv.Itoa(source.config.Port), target, strings.Join(quoted, " "))
 	cmd.Stdin = stdin
 	out, err := cmd.Output()
 	if err == nil {
@@ -299,6 +305,31 @@ func (source cephSource) runHostCommand(ctx context.Context, host string, stdin 
 		}
 	}
 	return nil, fmt.Errorf("command failed: %w", err)
+}
+
+func isLocalHost(host string) bool {
+	local, err := os.Hostname()
+	if err != nil {
+		return false
+	}
+	return managerNamesMatch(local, host)
+}
+
+func pveKnownHosts(host string) string {
+	name := fmt.Sprintf("/etc/pve/nodes/%s/ssh_known_hosts", canonicalManagerName(host))
+	if _, err := os.Stat(name); err != nil {
+		return ""
+	}
+	return name
+}
+
+// sshHostOptions mirrors PVE::SSHInfo: plain SSH between PVE nodes fails host key verification.
+func sshHostOptions(host, knownHosts string) []string {
+	options := []string{"-e", "none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "HostKeyAlias=" + canonicalManagerName(host)}
+	if knownHosts != "" {
+		options = append(options, "-o", "UserKnownHostsFile="+knownHosts, "-o", "GlobalKnownHostsFile=none")
+	}
+	return options
 }
 
 func parseRGWDaemons(out []byte) ([]rgwDaemonConfig, error) {
