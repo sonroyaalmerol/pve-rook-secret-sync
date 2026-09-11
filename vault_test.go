@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,6 +92,24 @@ func TestVaultReadDeletedSecretUsesMetadataVersion(t *testing.T) {
 	}
 	if cas != 7 {
 		t.Fatalf("write CAS = %d, want 7", cas)
+	}
+}
+
+func TestVaultClientReadsTokenFile(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "vault-token")
+	if err := os.WriteFile(name, []byte("shared-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TEST_VAULT_TOKEN", "environment-token")
+	client, err := newVaultClient(vaultConfig{
+		Address: "https://vault.example.com", Mount: "secret", PathPrefix: "prefix", TokenEnv: "TEST_VAULT_TOKEN", TokenFile: name,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.http.CloseIdleConnections()
+	if client.token != "shared-token" {
+		t.Fatalf("token = %q, want shared token", client.token)
 	}
 }
 

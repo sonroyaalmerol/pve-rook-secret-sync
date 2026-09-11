@@ -1,12 +1,13 @@
 [Unit]
 Description=Synchronize Ceph credentials to Vault
 Wants=network-online.target
+Requires=pve-cluster.service
 After=network-online.target pve-cluster.service
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/default/ceph-vault-sync
-ExecStart=/usr/sbin/ceph-vault-sync sync -config /etc/ceph-vault-sync/config.json -interval 15s
+EnvironmentFile=-/etc/default/ceph-vault-sync
+ExecStart=/usr/sbin/ceph-vault-sync sync -interval 15s
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s

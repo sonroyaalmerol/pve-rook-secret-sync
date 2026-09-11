@@ -9,7 +9,8 @@
     "namespace": "example",
     "mount": "service-secrets",
     "path_prefix": "rook-pve/staging",
-    "token_env": "VAULT_TOKEN"
+    "token_env": "VAULT_TOKEN",
+    "token_file": ""
   },
   "rook_cluster_name": "rook-ceph",
   "credentials": [

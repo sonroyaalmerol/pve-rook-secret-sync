@@ -12,7 +12,7 @@ func TestLoadConfig(t *testing.T) {
 	name := filepath.Join(t.TempDir(), "config.json")
 	body := `{
 		"ceph":{"host":"pve1"},
-		"vault":{"mount":"secret","path_prefix":"rook/staging"},
+		"vault":{"mount":"secret","path_prefix":"rook/staging","token_file":"/etc/pve/priv/ceph-vault-sync/vault-token"},
 		"credentials":[{"vault_path":"rook-ceph-mon","entity":"client.healthchecker","kind":"rook-mon"}]
 	}`
 	if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
@@ -25,7 +25,7 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.Ceph.Transport != "ssh" || cfg.Ceph.User != "root" || cfg.Ceph.Port != 22 || cfg.Ceph.Coordination != "active-manager" {
 		t.Fatalf("unexpected Ceph defaults: %+v", cfg.Ceph)
 	}
-	if cfg.Vault.Address != "https://vault.example.com" || cfg.Vault.TokenEnv != "VAULT_TOKEN" {
+	if cfg.Vault.Address != "https://vault.example.com" || cfg.Vault.TokenEnv != "VAULT_TOKEN" || cfg.Vault.TokenFile != "/etc/pve/priv/ceph-vault-sync/vault-token" {
 		t.Fatalf("unexpected Vault defaults: %+v", cfg.Vault)
 	}
 	if cfg.RookClusterName != "rook-ceph" {

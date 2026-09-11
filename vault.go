@@ -32,9 +32,21 @@ type vaultValue struct {
 }
 
 func newVaultClient(cfg vaultConfig) (*vaultClient, error) {
-	token := os.Getenv(cfg.TokenEnv)
-	if token == "" {
-		return nil, fmt.Errorf("vault token environment variable %s is empty", cfg.TokenEnv)
+	var token string
+	if cfg.TokenFile != "" {
+		data, err := os.ReadFile(cfg.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("read vault token file: %w", err)
+		}
+		token = strings.TrimSpace(string(data))
+		if token == "" {
+			return nil, errors.New("vault token file is empty")
+		}
+	} else {
+		token = os.Getenv(cfg.TokenEnv)
+		if token == "" {
+			return nil, fmt.Errorf("vault token environment variable %s is empty", cfg.TokenEnv)
+		}
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()

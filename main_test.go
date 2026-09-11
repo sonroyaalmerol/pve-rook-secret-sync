@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -19,6 +20,21 @@ func TestRunRejectsUnexpectedArguments(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unexpected argument") {
 		t.Fatalf("unexpected stderr %q", stderr.String())
+	}
+}
+
+func TestPreferredConfigPath(t *testing.T) {
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "shared.json")
+	local := filepath.Join(dir, "local.json")
+	if got := preferredConfigPath(shared, local); got != local {
+		t.Fatalf("path = %q, want %q", got, local)
+	}
+	if err := os.WriteFile(shared, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := preferredConfigPath(shared, local); got != shared {
+		t.Fatalf("path = %q, want %q", got, shared)
 	}
 }
 

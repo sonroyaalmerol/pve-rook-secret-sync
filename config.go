@@ -34,6 +34,7 @@ type vaultConfig struct {
 	Mount      string `json:"mount"`
 	PathPrefix string `json:"path_prefix"`
 	TokenEnv   string `json:"token_env"`
+	TokenFile  string `json:"token_file"`
 	CACert     string `json:"ca_cert"`
 	AllowHTTP  bool   `json:"allow_http"`
 }

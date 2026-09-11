@@ -32,31 +32,34 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Install a release package on each PVE node, then edit the packaged example configuration and Vault environment file:
+Install a release package on every PVE node:
 
 ```bash
 apt install ./ceph-vault-sync_0.1.0_linux_amd64.deb
-editor /etc/ceph-vault-sync/config.json
-editor /etc/default/ceph-vault-sync
-systemctl enable --now ceph-vault-sync.service
 ```
 
-The package does not enable the service before those files are configured.
+The package does not enable the service before it is configured.
 
 ## Configure
 
-Copy `config.example.json` outside the repository and restrict its permissions:
+The packaged `/etc/ceph-vault-sync/config.json` remains a local fallback and a template for non-PVE systems. `-config FILE` always selects an explicit file.
 
-```bash
-cp config.example.json config.json
-chmod 0600 config.json
-```
-
-The configuration does not contain Ceph keys or a Vault token. Authentication uses the environment variable named by `vault.token_env`.
+Authentication uses `vault.token_file` when set, otherwise the environment variable named by `vault.token_env`. A token file is reread for every synchronization, so rotating it does not require restarting the service.
 
 ### PVE cluster
 
-Install the same binary and configuration on every PVE node. Local execution and active-manager coordination are the defaults:
+Create the shared configuration once, on any cluster node:
+
+```bash
+mkdir /etc/pve/priv/ceph-vault-sync
+cp /etc/ceph-vault-sync/config.json /etc/pve/priv/ceph-vault-sync/config.json
+editor /etc/pve/priv/ceph-vault-sync/config.json
+read -rsp 'Vault token: ' VAULT_TOKEN
+printf '%s\n' "$VAULT_TOKEN" > /etc/pve/priv/ceph-vault-sync/vault-token
+unset VAULT_TOKEN
+```
+
+Set the shared configuration to use local Ceph access, active-manager coordination, and the shared token file:
 
 ```json
 {
@@ -64,11 +67,18 @@ Install the same binary and configuration on every PVE node. Local execution and
     "transport": "local",
     "command": ["ceph"],
     "coordination": "active-manager"
+  },
+  "vault": {
+    "token_file": "/etc/pve/priv/ceph-vault-sync/vault-token"
   }
 }
 ```
 
-Each run asks the Ceph monitors for the active manager. Only that manager's host reads credentials or accesses Vault; standby hosts exit successfully. Manager names are matched against the local short or fully qualified hostname. Set `ceph.manager_name` separately on each host only when its manager daemon ID does not match its hostname.
+Keep the other required Vault and credential fields from the packaged configuration. The service automatically prefers `/etc/pve/priv/ceph-vault-sync/config.json` and falls back to `/etc/ceph-vault-sync/config.json` when the shared file does not exist.
+
+`pmxcfs` replicates the private directory across the cluster and makes it root-only. It controls permissions by path, so do not run `chmod` inside `/etc/pve`. Store only small, infrequently changed configuration there, not logs or runtime state.
+
+Each run asks the Ceph monitors for the active manager. Only that manager's host reads credentials or accesses Vault; standby hosts exit successfully. Manager names are matched against the local short or fully qualified hostname. Clusters whose manager daemon IDs differ from their hostnames must retain node-local configurations and set `ceph.manager_name` separately.
 
 Ceph monitor consensus provides one active manager during normal operation. Vault compare-and-set remains the final write guard. Existing `_ceph_fsid` metadata also prevents a different Ceph cluster from taking over the same Vault paths. Keep `vault.path_prefix` unique per Ceph cluster.
 
@@ -89,18 +99,17 @@ For one external runner, set `coordination` to `none`. Do not use `none` on ever
 
 ### systemd service on every PVE node
 
-The Debian package installs the binary at `/usr/sbin/ceph-vault-sync`, the configuration at `/etc/ceph-vault-sync/config.json`, the root-only Vault environment file at `/etc/default/ceph-vault-sync`, and the service and timer units under `/lib/systemd/system`.
+The Debian package installs the binary, a local fallback configuration, an optional Vault environment file, and the service and timer units. It does not write package-managed files into `/etc/pve`.
 
-Set `VAULT_TOKEN` in `/etc/default/ceph-vault-sync`, then enable the service after configuring every node:
+Enable the service on every node after creating the shared files:
 
 ```bash
-chmod 0600 /etc/ceph-vault-sync/config.json /etc/default/ceph-vault-sync
 systemctl enable --now ceph-vault-sync.service
 ```
 
-The service synchronizes immediately, then polls every 15 seconds. Active-manager coordination ensures only one cluster node reads credentials or accesses Vault. The timer remains packaged so installations upgrading from the older timer-based service still start the resident service after boot.
+The service waits for `pve-cluster.service`, synchronizes immediately, then polls every 15 seconds. Shared configuration, token-file, and CA certificate changes are picked up by every node during polling. Active-manager coordination ensures only one node reads credentials or accesses Vault. The compatibility timer remains packaged for installations upgrading from the older timer-based service.
 
-Reloading triggers an immediate synchronization and rereads the JSON configuration and CA certificate. `SIGUSR1` also triggers an immediate synchronization. Restart the service after changing `/etc/default/ceph-vault-sync` because a running process cannot inherit changed environment variables.
+Reloading triggers an immediate synchronization on that node. `SIGUSR1` does the same. No restart is needed after changing a token file; environment-variable changes still require a restart.
 
 ```bash
 systemctl reload ceph-vault-sync.service

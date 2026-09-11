@@ -14,6 +14,11 @@ import (
 
 var errDrift = errors.New("credentials differ from Vault")
 
+const (
+	sharedConfigPath = "/etc/pve/priv/ceph-vault-sync/config.json"
+	localConfigPath  = "/etc/ceph-vault-sync/config.json"
+)
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -43,10 +48,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 		fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
 		return 2
 	}
-	if *configPath == "" {
-		fmt.Fprintln(stderr, "-config is required")
-		return 2
-	}
 	if *dryRun && *check {
 		fmt.Fprintln(stderr, "-dry-run and -check cannot be combined")
 		return 2
@@ -61,7 +62,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 	}
 
 	syncOnce := func(ctx context.Context) error {
-		cfg, err := loadConfig(*configPath)
+		path := *configPath
+		if path == "" {
+			path = preferredConfigPath(sharedConfigPath, localConfigPath)
+		}
+		cfg, err := loadConfig(path)
 		if err != nil {
 			return err
 		}
@@ -110,6 +115,13 @@ func watch(ctx context.Context, interval time.Duration, trigger <-chan os.Signal
 	}
 }
 
+func preferredConfigPath(shared, local string) string {
+	if _, err := os.Stat(shared); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return shared
+	}
+	return local
+}
+
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: ceph-vault-sync sync -config FILE [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
+	fmt.Fprintln(w, "usage: ceph-vault-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
 }
