@@ -132,7 +132,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", *output)
-	fmt.Fprintf(stdout, "run ceph-vault-sync bootstrap -config %s before starting the service\n", *output)
+	fmt.Fprintf(stdout, "run pve-rook-secret-sync bootstrap -config %s before starting the service\n", *output)
 	if cfg.Vault.Auth != nil {
 		switch cfg.Vault.Auth.Method {
 		case "userpass":

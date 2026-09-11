@@ -1,11 +1,11 @@
 version: 2
 
-project_name: ceph-vault-sync
+project_name: pve-rook-secret-sync
 
 builds:
-  - id: ceph-vault-sync
+  - id: pve-rook-secret-sync
     main: .
-    binary: ceph-vault-sync
+    binary: pve-rook-secret-sync
     env:
       - CGO_ENABLED=0
     goos:
@@ -20,7 +20,7 @@ builds:
 
 archives:
   - ids:
-      - ceph-vault-sync
+      - pve-rook-secret-sync
     formats:
       - tar.gz
     files:
@@ -29,33 +29,33 @@ archives:
 
 nfpms:
   - id: deb
-    package_name: ceph-vault-sync
+    package_name: pve-rook-secret-sync
     ids:
-      - ceph-vault-sync
+      - pve-rook-secret-sync
     vendor: Son Roy Almerol
-    homepage: https://github.com/sonroyaalmerol/ceph-vault-sync
+    homepage: https://github.com/sonroyaalmerol/pve-rook-secret-sync
     maintainer: Son Roy Almerol <sralmerol@sgl.com>
-    description: Synchronize CephX credentials to OpenBao or Vault KV v2
+    description: Synchronize PVE Ceph credentials and metadata to Vault for Rook
     formats:
       - deb
     bindir: /usr/sbin
     contents:
       - src: config.example.json
-        dst: /etc/ceph-vault-sync/config.json
+        dst: /etc/pve-rook-secret-sync/config.json
         type: config|noreplace
         file_info:
           mode: 0600
-      - src: packaging/ceph-vault-sync.env
-        dst: /etc/default/ceph-vault-sync
+      - src: packaging/pve-rook-secret-sync.env
+        dst: /etc/default/pve-rook-secret-sync
         type: config|noreplace
         file_info:
           mode: 0600
-      - src: packaging/ceph-vault-sync.service
-        dst: /lib/systemd/system/ceph-vault-sync.service
-      - src: packaging/ceph-vault-sync.timer
-        dst: /lib/systemd/system/ceph-vault-sync.timer
+      - src: packaging/pve-rook-secret-sync.service
+        dst: /lib/systemd/system/pve-rook-secret-sync.service
+      - src: packaging/pve-rook-secret-sync.timer
+        dst: /lib/systemd/system/pve-rook-secret-sync.timer
       - src: README.md
-        dst: /usr/share/doc/ceph-vault-sync/README.md
+        dst: /usr/share/doc/pve-rook-secret-sync/README.md
 
 checksum:
   name_template: checksums.txt

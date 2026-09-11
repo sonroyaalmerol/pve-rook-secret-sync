@@ -1,8 +1,0 @@
-[Unit]
-Description=Start ceph-vault-sync for timer-based installations
-
-[Timer]
-OnBootSec=1m
-
-[Install]
-WantedBy=timers.target

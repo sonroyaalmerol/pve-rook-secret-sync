@@ -55,7 +55,7 @@ func TestRunInitWritesConfig(t *testing.T) {
 	if _, err := os.Stat(token); !os.IsNotExist(err) {
 		t.Fatalf("token file was created: %v", err)
 	}
-	if !strings.Contains(stdout.String(), token) || !strings.Contains(stdout.String(), "ceph-vault-sync bootstrap") {
+	if !strings.Contains(stdout.String(), token) || !strings.Contains(stdout.String(), "pve-rook-secret-sync bootstrap") {
 		t.Fatalf("stdout is missing setup guidance: %q", stdout.String())
 	}
 }

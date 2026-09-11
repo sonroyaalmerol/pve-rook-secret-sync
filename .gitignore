@@ -1,4 +1,4 @@
-ceph-vault-sync
+pve-rook-secret-sync
 coverage.out
 config.json
 dist/

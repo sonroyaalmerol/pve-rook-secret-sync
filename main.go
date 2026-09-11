@@ -16,11 +16,11 @@ var errDrift = errors.New("credentials differ from Vault")
 
 const (
 	pvePrivatePath     = "/etc/pve/priv"
-	sharedConfigPath   = "/etc/pve/priv/ceph-vault-sync/config.json"
-	sharedTokenPath    = "/etc/pve/priv/ceph-vault-sync/vault-token"
-	sharedPasswordPath = "/etc/pve/priv/ceph-vault-sync/vault-password"
-	sharedSecretIDPath = "/etc/pve/priv/ceph-vault-sync/vault-secret-id"
-	localConfigPath    = "/etc/ceph-vault-sync/config.json"
+	sharedConfigPath   = "/etc/pve/priv/pve-rook-secret-sync/config.json"
+	sharedTokenPath    = "/etc/pve/priv/pve-rook-secret-sync/vault-token"
+	sharedPasswordPath = "/etc/pve/priv/pve-rook-secret-sync/vault-password"
+	sharedSecretIDPath = "/etc/pve/priv/pve-rook-secret-sync/vault-secret-id"
+	localConfigPath    = "/etc/pve-rook-secret-sync/config.json"
 )
 
 func main() {
@@ -142,7 +142,7 @@ func preferredConfigPath(shared, local string) string {
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
-	fmt.Fprintln(w, "  ceph-vault-sync init -vault-address URL -path-prefix PATH [OPTIONS]")
-	fmt.Fprintln(w, "  ceph-vault-sync bootstrap [-config FILE] [-dry-run] [-timeout DURATION]")
-	fmt.Fprintln(w, "  ceph-vault-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync init -vault-address URL -path-prefix PATH [OPTIONS]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync bootstrap [-config FILE] [-dry-run] [-timeout DURATION]")
+	fmt.Fprintln(w, "  pve-rook-secret-sync sync [-config FILE] [-dry-run|-check] [-timeout DURATION] [-interval DURATION]")
 }
