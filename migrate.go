@@ -163,7 +163,7 @@ func migrateRGWDaemon(ctx context.Context, source migrationSource, daemon rgwDae
 	case state.Current == "":
 		return fmt.Errorf("RGW entity %s is missing from the CephX key inventory", daemon.Entity)
 	case state.Pending != "" && state.Pending != secureKeyType:
-		return fmt.Errorf("RGW entity %s already has a pending %s key; resolve it with ceph auth clear-pending", daemon.Entity, state.Pending)
+		return fmt.Errorf("RGW entity %s already has a pending %s key; compare it with %s on %s before deciding whether to commit or clear it", daemon.Entity, state.Pending, daemon.Keyring, daemon.Host)
 	}
 	if dryRun {
 		fmt.Fprintf(output, "%s: would stage %s, write %s on %s, and restart %s\n", daemon.Entity, secureKeyType, daemon.Keyring, daemon.Host, daemon.Unit)

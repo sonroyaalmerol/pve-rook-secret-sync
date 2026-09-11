@@ -1,9 +1,33 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestStagePendingKeyRequestsAES256K(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ceph")
+	args := filepath.Join(dir, "args")
+	if err := os.WriteFile(script, []byte("args=$1\nshift\nprintf '%s\\n' \"$@\" >\"$args\"\nprintf '[{\"pending_key\":\"secret\"}]'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := newCephSource(cephConfig{Transport: "local", Command: []string{"sh", script, args}})
+	if _, err := source.StagePendingKey(context.Background(), "client.rgw.test"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "auth\nget-or-create-pending\nclient.rgw.test\n--format\njson\n--key-type\naes256k\n"
+	if string(got) != want {
+		t.Fatalf("arguments = %q, want %q", got, want)
+	}
+}
 
 func TestParseActiveManager(t *testing.T) {
 	name, err := parseActiveManager([]byte(`{"active_name":"pve1"}`))
