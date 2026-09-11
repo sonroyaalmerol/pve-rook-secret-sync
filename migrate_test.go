@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -89,10 +92,10 @@ func observedMigrationSource(stuck bool) *fakeMigrationSource {
 
 func observedRGWDaemons() []rgwDaemonConfig {
 	daemons := make([]rgwDaemonConfig, 0, 3)
-	for _, address := range []string{"10.254.23.51", "10.254.23.52", "10.254.23.53"} {
+	for index, address := range []string{"10.254.23.51", "10.254.23.52", "10.254.23.53"} {
 		daemons = append(daemons, rgwDaemonConfig{
 			Entity:  "client.rgw.k8s-staging." + address,
-			Host:    address,
+			Host:    fmt.Sprintf("vm-lan-%d", index+1),
 			Unit:    "ceph-radosgw@k8s-staging." + address + ".service",
 			Keyring: "/var/lib/ceph/radosgw/ceph-rgw.k8s-staging." + address + "/keyring",
 		})
@@ -205,15 +208,18 @@ func TestMigrateToSecureKeysSkipsRotatedRookGeneration(t *testing.T) {
 }
 
 func TestParseRGWDaemons(t *testing.T) {
-	daemons, err := parseRGWDaemons([]byte(`{"services":{"rgw":{"daemons":{"summary":"",
-		"4711":{"gid":4711,"metadata":{"hostname":"vm-lan-1","id":"k8s-staging.10.254.23.52"}},
-		"4710":{"gid":4710,"metadata":{"hostname":"vm-lan-1","id":"k8s-staging.10.254.23.51"}}}}}}`))
+	dump, err := os.ReadFile(filepath.Join("testdata", "service-dump.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemons, err := parseRGWDaemons(dump)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []rgwDaemonConfig{
 		{Entity: "client.rgw.k8s-staging.10.254.23.51", Host: "vm-lan-1"},
-		{Entity: "client.rgw.k8s-staging.10.254.23.52", Host: "vm-lan-1"},
+		{Entity: "client.rgw.k8s-staging.10.254.23.52", Host: "vm-lan-2"},
+		{Entity: "client.rgw.k8s-staging.10.254.23.53", Host: "vm-lan-3"},
 	}
 	if !slices.Equal(daemons, want) {
 		t.Fatalf("daemons = %+v", daemons)

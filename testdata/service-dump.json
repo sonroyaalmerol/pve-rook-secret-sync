@@ -1,0 +1,113 @@
+{
+  "epoch": 141696,
+  "modified": "2026-09-11T18:03:08.155177-0400",
+  "services": {
+    "rgw": {
+      "daemons": {
+        "summary": "",
+        "8056234": {
+          "start_epoch": 140199,
+          "start_stamp": "2026-09-09T11:18:09.681093-0400",
+          "gid": 8056234,
+          "addr": "10.254.23.53:0/2113556881",
+          "metadata": {
+            "arch": "x86_64",
+            "ceph_release": "squid",
+            "ceph_version": "ceph version 19.2.6 (7198987e0613d69ffb68c62f59cf70ce51a10eb7) squid (stable)",
+            "ceph_version_short": "19.2.6",
+            "cpu": "AMD EPYC 4565P 16-Core Processor",
+            "distro": "debian",
+            "distro_description": "Debian GNU/Linux 13 (trixie)",
+            "distro_version": "13",
+            "frontend_config#0": "beast port=8080",
+            "frontend_type#0": "beast",
+            "hostname": "vm-lan-3",
+            "id": "k8s-staging.10.254.23.53",
+            "kernel_description": "#1 SMP PREEMPT_DYNAMIC PMX 7.0.14-16 (2026-08-28T17:31Z)",
+            "kernel_version": "7.0.14-16-pve",
+            "mem_swap_kb": "8388604",
+            "mem_total_kb": "65418336",
+            "num_handles": "1",
+            "os": "Linux",
+            "pid": "1356",
+            "realm_id": "",
+            "realm_name": "",
+            "zone_id": "f0dfdbfb-7da1-4230-b312-70964aef5863",
+            "zone_name": "default",
+            "zonegroup_id": "1ff2e1a0-7110-4a96-a1b7-2b618f12ec05",
+            "zonegroup_name": "default"
+          },
+          "task_status": {}
+        },
+        "8075115": {
+          "start_epoch": 140214,
+          "start_stamp": "2026-09-09T11:31:50.269750-0400",
+          "gid": 8075115,
+          "addr": "10.254.23.52:0/2336623703",
+          "metadata": {
+            "arch": "x86_64",
+            "ceph_release": "squid",
+            "ceph_version": "ceph version 19.2.6 (7198987e0613d69ffb68c62f59cf70ce51a10eb7) squid (stable)",
+            "ceph_version_short": "19.2.6",
+            "cpu": "AMD EPYC 4565P 16-Core Processor",
+            "distro": "debian",
+            "distro_description": "Debian GNU/Linux 13 (trixie)",
+            "distro_version": "13",
+            "frontend_config#0": "beast port=8080",
+            "frontend_type#0": "beast",
+            "hostname": "vm-lan-2",
+            "id": "k8s-staging.10.254.23.52",
+            "kernel_description": "#1 SMP PREEMPT_DYNAMIC PMX 7.0.14-16 (2026-08-28T17:31Z)",
+            "kernel_version": "7.0.14-16-pve",
+            "mem_swap_kb": "8388604",
+            "mem_total_kb": "65418336",
+            "num_handles": "1",
+            "os": "Linux",
+            "pid": "1348",
+            "realm_id": "",
+            "realm_name": "",
+            "zone_id": "f0dfdbfb-7da1-4230-b312-70964aef5863",
+            "zone_name": "default",
+            "zonegroup_id": "1ff2e1a0-7110-4a96-a1b7-2b618f12ec05",
+            "zonegroup_name": "default"
+          },
+          "task_status": {}
+        },
+        "8520891": {
+          "start_epoch": 141631,
+          "start_stamp": "2026-09-11T16:00:14.780119-0400",
+          "gid": 8520891,
+          "addr": "10.254.23.51:0/1067406093",
+          "metadata": {
+            "arch": "x86_64",
+            "ceph_release": "squid",
+            "ceph_version": "ceph version 19.2.6 (7198987e0613d69ffb68c62f59cf70ce51a10eb7) squid (stable)",
+            "ceph_version_short": "19.2.6",
+            "cpu": "AMD EPYC 4565P 16-Core Processor",
+            "distro": "debian",
+            "distro_description": "Debian GNU/Linux 13 (trixie)",
+            "distro_version": "13",
+            "frontend_config#0": "beast port=8080",
+            "frontend_type#0": "beast",
+            "hostname": "vm-lan-1",
+            "id": "k8s-staging.10.254.23.51",
+            "kernel_description": "#1 SMP PREEMPT_DYNAMIC PMX 7.0.14-16 (2026-08-28T17:31Z)",
+            "kernel_version": "7.0.14-16-pve",
+            "mem_swap_kb": "8388604",
+            "mem_total_kb": "65418332",
+            "num_handles": "1",
+            "os": "Linux",
+            "pid": "1870624",
+            "realm_id": "",
+            "realm_name": "",
+            "zone_id": "f0dfdbfb-7da1-4230-b312-70964aef5863",
+            "zone_name": "default",
+            "zonegroup_id": "1ff2e1a0-7110-4a96-a1b7-2b618f12ec05",
+            "zonegroup_name": "default"
+          },
+          "task_status": {}
+        }
+      }
+    }
+  }
+}
