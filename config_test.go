@@ -33,6 +33,30 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestConfigAuthDefaults(t *testing.T) {
+	cfg := config{
+		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, Coordination: "active-manager"},
+		Vault:           vaultConfig{Address: "https://vault.example.com", Mount: "secret", PathPrefix: "rook/staging", Auth: &vaultAuthConfig{Method: "userpass", Username: "alice", PasswordFile: "/pw"}},
+		RookClusterName: "rook-ceph",
+		Credentials:     []credentialSpec{{VaultPath: "mon", Entity: "client.healthchecker", Kind: "rook-mon"}},
+	}
+	cfg.applyDefaults()
+	if cfg.Vault.Auth.Mount != "userpass" {
+		t.Fatalf("auth mount = %q, want userpass", cfg.Vault.Auth.Mount)
+	}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("valid userpass config rejected: %v", err)
+	}
+	cfg.Vault.Auth = &vaultAuthConfig{RoleID: "role", SecretIDFile: "/sid"}
+	cfg.applyDefaults()
+	if cfg.Vault.Auth.Method != "token" || cfg.Vault.Auth.Mount != "token" {
+		t.Fatalf("unexpected defaults: %+v", cfg.Vault.Auth)
+	}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("implicit token method rejected: %v", err)
+	}
+}
+
 func TestConfigValidation(t *testing.T) {
 	base := config{
 		Ceph:            cephConfig{Transport: "local", Port: 22, Command: []string{"ceph"}, Coordination: "active-manager"},
@@ -52,6 +76,14 @@ func TestConfigValidation(t *testing.T) {
 		{"parent path", func(cfg *config) { cfg.Vault.PathPrefix = "rook/../other" }, "parent segments"},
 		{"duplicate path", func(cfg *config) { cfg.Credentials = append(cfg.Credentials, cfg.Credentials[0]) }, "duplicate"},
 		{"unknown kind", func(cfg *config) { cfg.Credentials[0].Kind = "generic" }, "kind must be"},
+		{"unknown auth method", func(cfg *config) { cfg.Vault.Auth = &vaultAuthConfig{Method: "ldap"} }, "method must be"},
+		{"userpass without username", func(cfg *config) { cfg.Vault.Auth = &vaultAuthConfig{Method: "userpass", PasswordFile: "/pw"} }, "username is required"},
+		{"userpass without password file", func(cfg *config) { cfg.Vault.Auth = &vaultAuthConfig{Method: "userpass", Username: "alice"} }, "password_file is required"},
+		{"approle without role ID", func(cfg *config) { cfg.Vault.Auth = &vaultAuthConfig{Method: "approle", SecretIDFile: "/sid"} }, "role_id is required"},
+		{"approle without secret ID file", func(cfg *config) { cfg.Vault.Auth = &vaultAuthConfig{Method: "approle", RoleID: "role"} }, "secret_id_file is required"},
+		{"auth mount traversal", func(cfg *config) {
+			cfg.Vault.Auth = &vaultAuthConfig{Method: "userpass", Username: "alice", PasswordFile: "/pw", Mount: "../auth"}
+		}, "vault.auth.mount"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

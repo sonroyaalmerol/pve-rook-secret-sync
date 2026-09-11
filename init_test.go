@@ -90,6 +90,59 @@ func TestRunInitHelp(t *testing.T) {
 	}
 }
 
+func TestRunInitUserpassAuth(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "config.json")
+	password := filepath.Join(dir, "vault-password")
+	var stdout, stderr bytes.Buffer
+	args := []string{
+		"init",
+		"-vault-address", "https://vault.example.com:8200",
+		"-path-prefix", "rook-pve/production",
+		"-auth-method", "userpass",
+		"-auth-username", "ceph-sync",
+		"-auth-password-file", password,
+		"-output", output,
+	}
+	if code := run(context.Background(), args, &stdout, &stderr, nil); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	body, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "token_env") || strings.Contains(string(body), "token_file") {
+		t.Fatalf("written config still contains token fields: %s", body)
+	}
+	cfg, err := loadConfig(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Vault.TokenFile != "" {
+		t.Fatalf("token file should be omitted: %+v", cfg.Vault)
+	}
+	if cfg.Vault.Auth == nil || cfg.Vault.Auth.Method != "userpass" || cfg.Vault.Auth.Mount != "userpass" || cfg.Vault.Auth.Username != "ceph-sync" || cfg.Vault.Auth.PasswordFile != password {
+		t.Fatalf("unexpected auth config: %+v", cfg.Vault.Auth)
+	}
+	if _, err := os.Stat(password); !os.IsNotExist(err) {
+		t.Fatalf("password file was created: %v", err)
+	}
+	if !strings.Contains(stdout.String(), password) {
+		t.Fatalf("stdout does not mention password path: %q", stdout.String())
+	}
+}
+
+func TestRunInitRejectsBadAuthMethod(t *testing.T) {
+	var stderr bytes.Buffer
+	args := []string{"init", "-vault-address", "https://vault.example.com", "-path-prefix", "p", "-auth-method", "ldap"}
+	if code := run(context.Background(), args, io.Discard, &stderr, nil); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "-auth-method") {
+		t.Fatalf("unexpected stderr %q", stderr.String())
+	}
+}
+
 func TestRunInitRequiresPathPrefix(t *testing.T) {
 	var stderr bytes.Buffer
 	args := []string{"init", "-vault-address", "https://vault.example.com"}

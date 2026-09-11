@@ -24,6 +24,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	caCert := flags.String("ca-cert", os.Getenv("VAULT_CACERT"), "Vault CA certificate path")
 	rookClusterName := flags.String("rook-cluster-name", "rook-ceph", "Rook cluster name")
 	tokenFile := flags.String("token-file", sharedTokenPath, "Vault token file referenced by the config")
+	authMethod := flags.String("auth-method", "token", "Vault auth method: token, userpass, or approle")
+	authMount := flags.String("auth-mount", "", "Vault auth mount path (defaults to the method)")
+	authUsername := flags.String("auth-username", "", "Vault userpass username")
+	authPasswordFile := flags.String("auth-password-file", "", "Vault userpass password file (defaults to the shared path)")
+	authRoleID := flags.String("auth-role-id", "", "Vault AppRole role ID")
+	authSecretIDFile := flags.String("auth-secret-id-file", "", "Vault AppRole secret ID file (defaults to the shared path)")
 	output := flags.String("output", sharedConfigPath, "configuration file to create")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -51,6 +57,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "-output must not be empty")
 		return 2
 	}
+	switch *authMethod {
+	case "token", "userpass", "approle":
+	default:
+		fmt.Fprintln(stderr, "-auth-method must be token, userpass, or approle")
+		return 2
+	}
 	if *output == sharedConfigPath {
 		info, err := os.Stat(pvePrivatePath)
 		if err != nil {
@@ -75,6 +87,23 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	cfg.Vault.TokenEnv = ""
 	cfg.Vault.TokenFile = *tokenFile
 	cfg.Vault.CACert = *caCert
+	if *authMethod != "token" {
+		cfg.Vault.TokenFile = ""
+		cfg.Vault.Auth = &vaultAuthConfig{
+			Method:       *authMethod,
+			Mount:        *authMount,
+			Username:     *authUsername,
+			PasswordFile: *authPasswordFile,
+			RoleID:       *authRoleID,
+			SecretIDFile: *authSecretIDFile,
+		}
+		if cfg.Vault.Auth.PasswordFile == "" {
+			cfg.Vault.Auth.PasswordFile = sharedPasswordPath
+		}
+		if cfg.Vault.Auth.SecretIDFile == "" {
+			cfg.Vault.Auth.SecretIDFile = sharedSecretIDPath
+		}
+	}
 	cfg.RookClusterName = *rookClusterName
 	validated := cfg
 	validated.applyDefaults()
@@ -87,7 +116,16 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "wrote %s\n", *output)
-	fmt.Fprintf(stdout, "write the Vault token to %s before starting the service\n", *tokenFile)
+	if cfg.Vault.Auth != nil {
+		switch cfg.Vault.Auth.Method {
+		case "userpass":
+			fmt.Fprintf(stdout, "write the password for %s to %s before starting the service\n", cfg.Vault.Auth.Username, cfg.Vault.Auth.PasswordFile)
+		case "approle":
+			fmt.Fprintf(stdout, "write the AppRole secret ID to %s before starting the service\n", cfg.Vault.Auth.SecretIDFile)
+		}
+	} else {
+		fmt.Fprintf(stdout, "write the Vault token to %s before starting the service\n", *tokenFile)
+	}
 	return 0
 }
 

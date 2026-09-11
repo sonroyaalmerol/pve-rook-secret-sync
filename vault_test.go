@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVaultReadAndWrite(t *testing.T) {
@@ -101,9 +103,9 @@ func TestVaultClientReadsTokenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TEST_VAULT_TOKEN", "environment-token")
-	client, err := newVaultClient(vaultConfig{
+	client, err := newVaultClient(context.Background(), vaultConfig{
 		Address: "https://vault.example.com", Mount: "secret", PathPrefix: "prefix", TokenEnv: "TEST_VAULT_TOKEN", TokenFile: name,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,9 +127,9 @@ func TestVaultClientRejectsRedirects(t *testing.T) {
 	defer server.Close()
 
 	t.Setenv("TEST_VAULT_TOKEN", "secret")
-	client, err := newVaultClient(vaultConfig{
+	client, err := newVaultClient(context.Background(), vaultConfig{
 		Address: server.URL, Mount: "secret", PathPrefix: "prefix", TokenEnv: "TEST_VAULT_TOKEN", AllowHTTP: true,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,5 +138,162 @@ func TestVaultClientRejectsRedirects(t *testing.T) {
 	}
 	if redirected {
 		t.Fatal("Vault token was sent to redirect target")
+	}
+}
+
+func TestVaultClientUserpassLoginAndCache(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "vault-password")
+	if err := os.WriteFile(passwordFile, []byte("hunter2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logins := 0
+	var loginBody map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/userpass/login/alice":
+			if r.Header.Get("X-Vault-Token") != "" {
+				t.Error("login request must not send a token")
+			}
+			if err := json.NewDecoder(r.Body).Decode(&loginBody); err != nil {
+				t.Error(err)
+			}
+			logins++
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins)))
+		case r.URL.Path == "/v1/secret/data/rook/mon":
+			if r.Header.Get("X-Vault-Token") == "" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"data":{"key":"value"},"metadata":{"version":1}}}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cfg := vaultConfig{
+		Address: server.URL, Mount: "secret", PathPrefix: "rook", AllowHTTP: true,
+		Auth: &vaultAuthConfig{Method: "userpass", Username: "alice", PasswordFile: passwordFile},
+	}
+	auth := newVaultAuth()
+	first, err := newVaultClient(context.Background(), cfg, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.http.CloseIdleConnections()
+	if loginBody["password"] != "hunter2" || first.token != "tok1" || first.tokenFromCache {
+		t.Fatalf("login body %v, token %q, cached %v", loginBody, first.token, first.tokenFromCache)
+	}
+
+	second, err := newVaultClient(context.Background(), cfg, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.http.CloseIdleConnections()
+	if second.token != "tok1" || !second.tokenFromCache || logins != 1 {
+		t.Fatalf("token %q, cached %v, logins %d", second.token, second.tokenFromCache, logins)
+	}
+
+	auth.mu.Lock()
+	auth.expiry = time.Now().Add(-time.Minute)
+	auth.mu.Unlock()
+	third, err := newVaultClient(context.Background(), cfg, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer third.http.CloseIdleConnections()
+	if third.token != "tok2" || logins != 2 {
+		t.Fatalf("token %q, logins %d", third.token, logins)
+	}
+	if _, err := third.Read(context.Background(), "mon"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVaultClientApproleLogin(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "vault-secret-id")
+	if err := os.WriteFile(secretFile, []byte("sid-123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var loginBody map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/approle/login":
+			if err := json.NewDecoder(r.Body).Decode(&loginBody); err != nil {
+				t.Error(err)
+			}
+			_, _ = w.Write([]byte(`{"auth":{"client_token":"app-token","lease_duration":1200}}`))
+		case r.URL.Path == "/v1/secret/data/rook/mon":
+			if r.Header.Get("X-Vault-Token") != "app-token" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"data":{"key":"value"},"metadata":{"version":1}}}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := newVaultClient(context.Background(), vaultConfig{
+		Address: server.URL, Mount: "secret", PathPrefix: "rook", AllowHTTP: true,
+		Auth: &vaultAuthConfig{Method: "approle", RoleID: "role-1", SecretIDFile: secretFile},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.http.CloseIdleConnections()
+	if loginBody["role_id"] != "role-1" || loginBody["secret_id"] != "sid-123" {
+		t.Fatalf("unexpected login body: %v", loginBody)
+	}
+	if _, err := client.Read(context.Background(), "mon"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVaultClientReloginsWhenCachedTokenRevoked(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "vault-password")
+	if err := os.WriteFile(passwordFile, []byte("pw"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logins := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/userpass/login/alice":
+			logins++
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"auth":{"client_token":"tok%d","lease_duration":3600}}`, logins)))
+		case r.URL.Path == "/v1/secret/data/rook/mon":
+			if r.Header.Get("X-Vault-Token") != "tok2" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"data":{"key":"value"},"metadata":{"version":1}}}`))
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cfg := vaultConfig{
+		Address: server.URL, Mount: "secret", PathPrefix: "rook", AllowHTTP: true,
+		Auth: &vaultAuthConfig{Method: "userpass", Username: "alice", PasswordFile: passwordFile},
+	}
+	auth := newVaultAuth()
+	first, err := newVaultClient(context.Background(), cfg, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.http.CloseIdleConnections()
+
+	second, err := newVaultClient(context.Background(), cfg, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.http.CloseIdleConnections()
+	if _, err := second.Read(context.Background(), "mon"); err != nil {
+		t.Fatalf("read with revoked cached token: %v", err)
+	}
+	if logins != 2 {
+		t.Fatalf("logins = %d, want 2", logins)
 	}
 }

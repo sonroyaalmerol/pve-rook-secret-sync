@@ -29,14 +29,24 @@ type cephConfig struct {
 }
 
 type vaultConfig struct {
-	Address    string `json:"address"`
-	Namespace  string `json:"namespace,omitempty"`
-	Mount      string `json:"mount"`
-	PathPrefix string `json:"path_prefix"`
-	TokenEnv   string `json:"token_env,omitempty"`
-	TokenFile  string `json:"token_file,omitempty"`
-	CACert     string `json:"ca_cert,omitempty"`
-	AllowHTTP  bool   `json:"allow_http,omitempty"`
+	Address    string           `json:"address"`
+	Namespace  string           `json:"namespace,omitempty"`
+	Mount      string           `json:"mount"`
+	PathPrefix string           `json:"path_prefix"`
+	TokenEnv   string           `json:"token_env,omitempty"`
+	TokenFile  string           `json:"token_file,omitempty"`
+	CACert     string           `json:"ca_cert,omitempty"`
+	AllowHTTP  bool             `json:"allow_http,omitempty"`
+	Auth       *vaultAuthConfig `json:"auth,omitempty"`
+}
+
+type vaultAuthConfig struct {
+	Method       string `json:"method"`
+	Mount        string `json:"mount,omitempty"`
+	Username     string `json:"username,omitempty"`
+	PasswordFile string `json:"password_file,omitempty"`
+	RoleID       string `json:"role_id,omitempty"`
+	SecretIDFile string `json:"secret_id_file,omitempty"`
 }
 
 type credentialSpec struct {
@@ -103,6 +113,15 @@ func (cfg *config) applyDefaults() {
 	if cfg.Vault.CACert == "" {
 		cfg.Vault.CACert = os.Getenv("VAULT_CACERT")
 	}
+	if cfg.Vault.Auth != nil {
+		if cfg.Vault.Auth.Method == "" {
+			cfg.Vault.Auth.Method = "token"
+		}
+		if cfg.Vault.Auth.Mount == "" {
+			cfg.Vault.Auth.Mount = cfg.Vault.Auth.Method
+		}
+	}
+
 	if cfg.RookClusterName == "" {
 		cfg.RookClusterName = "rook-ceph"
 	}
@@ -151,6 +170,32 @@ func (cfg config) validate() error {
 	if err := validateVaultPath(cfg.Vault.PathPrefix); err != nil {
 		return fmt.Errorf("vault.path_prefix: %w", err)
 	}
+	if cfg.Vault.Auth != nil {
+		auth := cfg.Vault.Auth
+		switch auth.Method {
+		case "token":
+		case "userpass":
+			if auth.Username == "" {
+				return errors.New("vault.auth.username is required for userpass")
+			}
+			if auth.PasswordFile == "" {
+				return errors.New("vault.auth.password_file is required for userpass")
+			}
+		case "approle":
+			if auth.RoleID == "" {
+				return errors.New("vault.auth.role_id is required for approle")
+			}
+			if auth.SecretIDFile == "" {
+				return errors.New("vault.auth.secret_id_file is required for approle")
+			}
+		default:
+			return errors.New("vault.auth.method must be token, userpass, or approle")
+		}
+		if err := validateVaultPath(auth.Mount); err != nil {
+			return fmt.Errorf("vault.auth.mount: %w", err)
+		}
+	}
+
 	if cfg.RookClusterName == "" {
 		return errors.New("rook_cluster_name is required")
 	}

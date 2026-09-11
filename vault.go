@@ -13,16 +13,45 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 type vaultClient struct {
-	address   string
-	namespace string
-	mount     string
-	prefix    string
-	token     string
-	http      *http.Client
+	address        string
+	namespace      string
+	mount          string
+	prefix         string
+	token          string
+	cfg            vaultConfig
+	auth           *vaultAuth
+	tokenFromCache bool
+	http           *http.Client
+}
+
+// vaultAuth caches login tokens across synchronization runs so polling does
+// not authenticate against Vault every cycle. Callers may share one instance.
+type vaultAuth struct {
+	mu       sync.Mutex
+	identity string
+	token    string
+	expiry   time.Time
+}
+
+func newVaultAuth() *vaultAuth {
+	return &vaultAuth{}
+}
+
+func authIdentity(cfg vaultConfig) string {
+	method, username, roleID := "token", "", ""
+	mount := ""
+	if cfg.Auth != nil {
+		if cfg.Auth.Method != "" {
+			method = cfg.Auth.Method
+		}
+		mount, username, roleID = cfg.Auth.Mount, cfg.Auth.Username, cfg.Auth.RoleID
+	}
+	return strings.Join([]string{cfg.Address, cfg.Namespace, method, mount, username, roleID}, "\x00")
 }
 
 type vaultValue struct {
@@ -31,24 +60,7 @@ type vaultValue struct {
 	Exists  bool
 }
 
-func newVaultClient(cfg vaultConfig) (*vaultClient, error) {
-	var token string
-	if cfg.TokenFile != "" {
-		data, err := os.ReadFile(cfg.TokenFile)
-		if err != nil {
-			return nil, fmt.Errorf("read vault token file: %w", err)
-		}
-		token = strings.TrimSpace(string(data))
-		if token == "" {
-			return nil, errors.New("vault token file is empty")
-		}
-	} else {
-		token = os.Getenv(cfg.TokenEnv)
-		if token == "" {
-			return nil, fmt.Errorf("vault token environment variable %s is empty", cfg.TokenEnv)
-		}
-	}
-
+func newVaultClient(ctx context.Context, cfg vaultConfig, auth *vaultAuth) (*vaultClient, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.CACert != "" {
 		pem, err := os.ReadFile(cfg.CACert)
@@ -65,12 +77,13 @@ func newVaultClient(cfg vaultConfig) (*vaultClient, error) {
 		transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
 
-	return &vaultClient{
+	client := &vaultClient{
 		address:   cfg.Address,
 		namespace: cfg.Namespace,
 		mount:     cfg.Mount,
 		prefix:    cfg.PathPrefix,
-		token:     token,
+		cfg:       cfg,
+		auth:      auth,
 		http: &http.Client{
 			Transport: transport,
 			Timeout:   30 * time.Second,
@@ -78,17 +91,126 @@ func newVaultClient(cfg vaultConfig) (*vaultClient, error) {
 				return http.ErrUseLastResponse
 			},
 		},
-	}, nil
+	}
+	if cfg.Auth == nil || cfg.Auth.Method == "" || cfg.Auth.Method == "token" {
+		var token string
+		if cfg.TokenFile != "" {
+			data, err := os.ReadFile(cfg.TokenFile)
+			if err != nil {
+				return nil, fmt.Errorf("read vault token file: %w", err)
+			}
+			token = strings.TrimSpace(string(data))
+			if token == "" {
+				return nil, errors.New("vault token file is empty")
+			}
+		} else {
+			token = os.Getenv(cfg.TokenEnv)
+			if token == "" {
+				return nil, fmt.Errorf("vault token environment variable %s is empty", cfg.TokenEnv)
+			}
+		}
+		client.token = token
+		return client, nil
+	}
+	if client.auth == nil {
+		client.auth = newVaultAuth()
+	}
+	token, cached, err := client.auth.login(ctx, cfg, client.http, false)
+	if err != nil {
+		return nil, err
+	}
+	client.token = token
+	client.tokenFromCache = cached
+	return client, nil
+}
+
+func (a *vaultAuth) login(ctx context.Context, cfg vaultConfig, hc *http.Client, force bool) (token string, fromCache bool, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	identity := authIdentity(cfg)
+	if !force && a.token != "" && a.identity == identity && time.Now().Before(a.expiry) {
+		return a.token, true, nil
+	}
+
+	method := cfg.Auth.Method
+	mount := cfg.Auth.Mount
+	if mount == "" {
+		mount = method
+	}
+	var endpoint string
+	payload := map[string]string{}
+	switch method {
+	case "userpass":
+		data, err := os.ReadFile(cfg.Auth.PasswordFile)
+		if err != nil {
+			return "", false, fmt.Errorf("read vault password file: %w", err)
+		}
+		password := strings.TrimSpace(string(data))
+		if password == "" {
+			return "", false, errors.New("vault password file is empty")
+		}
+		endpoint = cfg.Address + "/v1/auth/" + escapeVaultPath(mount) + "/login/" + url.PathEscape(cfg.Auth.Username)
+		payload["password"] = password
+	case "approle":
+		data, err := os.ReadFile(cfg.Auth.SecretIDFile)
+		if err != nil {
+			return "", false, fmt.Errorf("read vault secret ID file: %w", err)
+		}
+		secretID := strings.TrimSpace(string(data))
+		if secretID == "" {
+			return "", false, errors.New("vault secret ID file is empty")
+		}
+		endpoint = cfg.Address + "/v1/auth/" + escapeVaultPath(mount) + "/login"
+		payload["role_id"] = cfg.Auth.RoleID
+		payload["secret_id"] = secretID
+	default:
+		return "", false, fmt.Errorf("unsupported vault auth method %q", method)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", false, fmt.Errorf("encode vault %s login: %w", method, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", false, fmt.Errorf("create vault %s login request: %w", method, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cfg.Namespace != "" {
+		req.Header.Set("X-Vault-Namespace", cfg.Namespace)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("vault %s login: %w", method, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return "", false, fmt.Errorf("vault %s login: HTTP %s", method, resp.Status)
+	}
+	var response struct {
+		Auth struct {
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int    `json:"lease_duration"`
+		} `json:"auth"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&response); err != nil {
+		return "", false, fmt.Errorf("decode vault %s login: %w", method, err)
+	}
+	if response.Auth.ClientToken == "" {
+		return "", false, fmt.Errorf("vault %s login response missing client token", method)
+	}
+	guard := min(response.Auth.LeaseDuration/5, 60)
+	a.token = response.Auth.ClientToken
+	a.identity = identity
+	a.expiry = time.Now().Add(time.Duration(response.Auth.LeaseDuration-guard) * time.Second)
+	return a.token, false, nil
 }
 
 func (client *vaultClient) Read(ctx context.Context, path string) (vaultValue, error) {
-	req, err := client.request(ctx, http.MethodGet, "data", path, nil)
+	resp, err := client.do(ctx, http.MethodGet, "data", path, nil)
 	if err != nil {
 		return vaultValue{}, err
-	}
-	resp, err := client.http.Do(req)
-	if err != nil {
-		return vaultValue{}, fmt.Errorf("read Vault path %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
@@ -131,14 +253,9 @@ func (client *vaultClient) Write(ctx context.Context, path string, data map[stri
 	if err != nil {
 		return fmt.Errorf("encode Vault path %s: %w", path, err)
 	}
-	req, err := client.request(ctx, http.MethodPost, "data", path, body)
+	resp, err := client.do(ctx, http.MethodPost, "data", path, body)
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("write Vault path %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -149,13 +266,9 @@ func (client *vaultClient) Write(ctx context.Context, path string, data map[stri
 }
 
 func (client *vaultClient) currentVersion(ctx context.Context, path string) (int, error) {
-	req, err := client.request(ctx, http.MethodGet, "metadata", path, nil)
+	resp, err := client.do(ctx, http.MethodGet, "metadata", path, nil)
 	if err != nil {
 		return 0, err
-	}
-	resp, err := client.http.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("read Vault metadata %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
@@ -180,6 +293,38 @@ func (client *vaultClient) currentVersion(ctx context.Context, path string) (int
 		return 0, fmt.Errorf("decode Vault metadata %s: invalid current version", path)
 	}
 	return payload.Data.CurrentVersion, nil
+}
+
+func (client *vaultClient) do(ctx context.Context, method, endpointType, path string, body []byte) (*http.Response, error) {
+	resp, err := client.attempt(ctx, method, endpointType, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && client.auth != nil && client.tokenFromCache {
+		token, _, loginErr := client.auth.login(ctx, client.cfg, client.http, true)
+		if loginErr == nil {
+			resp.Body.Close()
+			client.token = token
+			client.tokenFromCache = false
+			return client.attempt(ctx, method, endpointType, path, body)
+		}
+	}
+	return resp, nil
+}
+
+func (client *vaultClient) attempt(ctx context.Context, method, endpointType, path string, body []byte) (*http.Response, error) {
+	req, err := client.request(ctx, method, endpointType, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := client.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (client *vaultClient) request(ctx context.Context, method, endpointType, path string, body []byte) (*http.Request, error) {

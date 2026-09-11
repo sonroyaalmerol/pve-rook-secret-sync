@@ -15,10 +15,12 @@ import (
 var errDrift = errors.New("credentials differ from Vault")
 
 const (
-	pvePrivatePath   = "/etc/pve/priv"
-	sharedConfigPath = "/etc/pve/priv/ceph-vault-sync/config.json"
-	sharedTokenPath  = "/etc/pve/priv/ceph-vault-sync/vault-token"
-	localConfigPath  = "/etc/ceph-vault-sync/config.json"
+	pvePrivatePath     = "/etc/pve/priv"
+	sharedConfigPath   = "/etc/pve/priv/ceph-vault-sync/config.json"
+	sharedTokenPath    = "/etc/pve/priv/ceph-vault-sync/vault-token"
+	sharedPasswordPath = "/etc/pve/priv/ceph-vault-sync/vault-password"
+	sharedSecretIDPath = "/etc/pve/priv/ceph-vault-sync/vault-secret-id"
+	localConfigPath    = "/etc/ceph-vault-sync/config.json"
 )
 
 func main() {
@@ -73,6 +75,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 		return 2
 	}
 
+	vaultAuthState := newVaultAuth()
 	syncOnce := func(ctx context.Context) error {
 		path := *configPath
 		if path == "" {
@@ -82,14 +85,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, trigger <
 		if err != nil {
 			return err
 		}
-		client, err := newVaultClient(cfg.Vault)
+		ctx, cancel := context.WithTimeout(ctx, *timeout)
+		defer cancel()
+		client, err := newVaultClient(ctx, cfg.Vault, vaultAuthState)
 		if err != nil {
 			return err
 		}
 		defer client.http.CloseIdleConnections()
 
-		ctx, cancel := context.WithTimeout(ctx, *timeout)
-		defer cancel()
 		return synchronize(ctx, cfg, newCephSource(cfg.Ceph), client, syncOptions{
 			DryRun: *dryRun,
 			Check:  *check,

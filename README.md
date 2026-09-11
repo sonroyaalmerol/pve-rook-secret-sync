@@ -46,6 +46,48 @@ The packaged `/etc/ceph-vault-sync/config.json` remains a local fallback and a t
 
 Authentication uses `vault.token_file` when set, otherwise the environment variable named by `vault.token_env`. A token file is reread for every synchronization, so rotating it does not require restarting the service.
 
+### Auth methods
+
+The default token method reads `vault.token_file` or `vault.token_env`. Username/password and AppRole logins are also supported through a `vault.auth` block; when set, they replace token lookup entirely:
+
+```json
+{
+  "vault": {
+    "auth": {
+      "method": "userpass",
+      "mount": "userpass",
+      "username": "ceph-sync",
+      "password_file": "/etc/pve/priv/ceph-vault-sync/vault-password"
+    }
+  }
+}
+```
+
+AppRole uses a role ID plus a secret ID file:
+
+```json
+{
+  "vault": {
+    "auth": {
+      "method": "approle",
+      "role_id": "00000000-0000-0000-0000-000000000000",
+      "secret_id_file": "/etc/pve/priv/ceph-vault-sync/vault-secret-id"
+    }
+  }
+}
+```
+
+`mount` defaults to the method name. Login tokens are cached in memory and reused until shortly before their lease expires, then re-obtained automatically; a revoked cached token triggers one immediate re-login and retry. Passwords and secret IDs are read from files for every login, so rotating either takes effect without a restart. LDAP, OIDC, and other interactive auth methods are not supported.
+
+`init` can generate these blocks directly:
+
+```bash
+ceph-vault-sync init -vault-address https://vault.example.com:8200 -path-prefix rook-pve/staging \
+  -auth-method userpass -auth-username ceph-sync
+ceph-vault-sync init -vault-address https://vault.example.com:8200 -path-prefix rook-pve/staging \
+  -auth-method approle -auth-role-id 00000000-0000-0000-0000-000000000000
+```
+
 ### PVE cluster
 
 Generate the shared configuration once, on any cluster node:
