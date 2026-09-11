@@ -265,7 +265,7 @@ Promotion depends on `mon_auth_client_pending_key_auto_promote`, which the Proxm
 
 A daemon on the node running the command is handled locally. Reaching any other daemon needs root SSH access from this node to its host. On a PVE cluster that works without setup: host keys are pinned to `/etc/pve/nodes/<node>/ssh_known_hosts` under the node name, as `PVE::SSHInfo` does, because plain SSH between PVE nodes fails host key verification.
 
-Listing any daemon replaces discovery entirely. Daemons migrate one at a time. Each one gets a pending AES256K key next to its current key, receives the new keyring over SSH, and restarts. Ceph promotes a pending key only when the daemon authenticates with it, so the promotion is the proof that the restart succeeded. A daemon that does not come back keeps its working key and stops the run before any later daemon or Rook credential changes.
+Listing any daemon replaces discovery entirely. Daemons migrate one at a time. Before staging, `migrate` sets `auth_preferred_cipher` to `aes256k` because `auth get-or-create-pending` uses the monitor preference and has no key-type flag; `auth_allowed_ciphers` is left unchanged. Each daemon gets a pending AES256K key next to its current key, receives the new keyring over SSH, and restarts. Ceph promotes a pending key only when the daemon authenticates with it, so the promotion is the proof that the restart succeeded. A daemon that does not come back keeps its working key and stops the run before any later daemon or Rook credential changes.
 
 Restrict the monitors to AES256K with `ceph mon set auth_allowed_ciphers aes256k` only after `ceph health detail` reports no remaining insecure key, including keys held by consumers this tool does not manage. Restricting ciphers while any key is incompatible can make the cluster unavailable.
 
@@ -289,7 +289,7 @@ Ceph monitor consensus provides one active manager during normal operation. Vaul
 
 Any deployment that supports `ceph mgr dump --format json`, `ceph fsid`, and `ceph auth get-key ENTITY` can use active-manager coordination. Monitor metadata additionally uses `ceph mon dump`; dashboard discovery uses `ceph mgr services`; RGW credentials use `radosgw-admin`.
 
-The mutating commands need more. `bootstrap` and `rotate` use `ceph auth get-or-create`, with `--key-type` for AES256K. `migrate` also uses `ceph version`, `ceph auth dump-keys`, `ceph auth get-or-create-pending`, and `ceph service dump`, runs the configured `migration_helper`, and reaches each RGW host over SSH for `systemctl` and `ceph-conf`. Only `migrate` and its helper are specific to Proxmox VE.
+The mutating commands need more. `bootstrap` and `rotate` use `ceph auth get-or-create`, with `--key-type` for AES256K. `migrate` also uses `ceph version`, `ceph auth dump-keys`, `ceph auth get-or-create-pending`, `ceph mon set auth_preferred_cipher`, and `ceph service dump`, runs the configured `migration_helper`, and reaches each RGW host over SSH for `systemctl` and `ceph-conf`. Only `migrate` and its helper are specific to Proxmox VE.
 
 Command prefixes can be included when required:
 

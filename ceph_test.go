@@ -12,7 +12,7 @@ func TestStagePendingKeyRequestsAES256K(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "ceph")
 	args := filepath.Join(dir, "args")
-	if err := os.WriteFile(script, []byte("args=$1\nshift\nprintf '%s\\n' \"$@\" >\"$args\"\nprintf '[{\"pending_key\":\"secret\"}]'\n"), 0o600); err != nil {
+	if err := os.WriteFile(script, []byte("args=$1\nshift\nprintf '%s\\n' \"$@\" >>\"$args\"\nprintf '%s\\n' '---' >>\"$args\"\nprintf '[{\"pending_key\":\"secret\"}]'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	source := newCephSource(cephConfig{Transport: "local", Command: []string{"sh", script, args}})
@@ -23,7 +23,7 @@ func TestStagePendingKeyRequestsAES256K(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "auth\nget-or-create-pending\nclient.rgw.test\n--format\njson\n--key-type\naes256k\n"
+	want := "mon\nset\nauth_preferred_cipher\naes256k\n---\nauth\nget-or-create-pending\nclient.rgw.test\n--format\njson\n---\n"
 	if string(got) != want {
 		t.Fatalf("arguments = %q, want %q", got, want)
 	}

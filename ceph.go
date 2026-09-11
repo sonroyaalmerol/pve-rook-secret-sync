@@ -179,7 +179,10 @@ func (source cephSource) PendingKeyAutoPromote(ctx context.Context) (bool, error
 }
 
 func (source cephSource) StagePendingKey(ctx context.Context, entity string) (string, error) {
-	out, err := source.run(ctx, "auth", "get-or-create-pending", entity, "--format", "json", "--key-type", secureKeyType)
+	if _, err := source.run(ctx, "mon", "set", "auth_preferred_cipher", secureKeyType); err != nil {
+		return "", fmt.Errorf("set preferred CephX cipher: %w", err)
+	}
+	out, err := source.run(ctx, "auth", "get-or-create-pending", entity, "--format", "json")
 	if err != nil {
 		return "", fmt.Errorf("stage CephX key for %s: %w", entity, err)
 	}
