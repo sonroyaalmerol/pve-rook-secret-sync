@@ -135,6 +135,13 @@ func TestSynchronizeStandbyDoesNotAccessVault(t *testing.T) {
 	if output.String() != "standby: active ceph manager is pve1\n" {
 		t.Fatalf("unexpected output %q", output.String())
 	}
+	output.Reset()
+	if err := synchronize(context.Background(), testConfig(), ceph, vault, syncOptions{Quiet: true, Output: &output}); err != nil {
+		t.Fatal(err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("quiet standby output %q", output.String())
+	}
 }
 
 func TestSynchronizeRejectsAnotherCluster(t *testing.T) {

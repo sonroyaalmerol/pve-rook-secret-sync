@@ -26,6 +26,7 @@ type vaultStore interface {
 type syncOptions struct {
 	DryRun bool
 	Check  bool
+	Quiet  bool
 	Output io.Writer
 }
 
@@ -46,7 +47,9 @@ func synchronize(ctx context.Context, cfg config, source cephReader, vault vault
 		return err
 	}
 	if !eligible {
-		fmt.Fprintf(options.Output, "standby: active ceph manager is %s\n", activeManager)
+		if !options.Quiet {
+			fmt.Fprintf(options.Output, "standby: active ceph manager is %s\n", activeManager)
+		}
 		return nil
 	}
 
@@ -90,6 +93,9 @@ func synchronize(ctx context.Context, cfg config, source cephReader, vault vault
 	}
 
 	for _, item := range plan {
+		if options.Quiet && item.Action == "unchanged" {
+			continue
+		}
 		if options.DryRun && item.Action != "unchanged" {
 			fmt.Fprintf(options.Output, "%s: would-%s\n", item.Desired.Path, item.Action)
 		} else {

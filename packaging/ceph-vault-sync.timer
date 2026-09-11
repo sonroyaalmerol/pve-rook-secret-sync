@@ -1,11 +1,8 @@
 [Unit]
-Description=Synchronize Ceph credentials to Vault every minute
+Description=Start ceph-vault-sync for timer-based installations
 
 [Timer]
 OnBootSec=1m
-OnUnitActiveSec=1m
-RandomizedDelaySec=15s
-Persistent=true
 
 [Install]
 WantedBy=timers.target

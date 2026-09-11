@@ -38,10 +38,10 @@ Install a release package on each PVE node, then edit the packaged example confi
 apt install ./ceph-vault-sync_0.1.0_linux_amd64.deb
 editor /etc/ceph-vault-sync/config.json
 editor /etc/default/ceph-vault-sync
-systemctl enable --now ceph-vault-sync.timer
+systemctl enable --now ceph-vault-sync.service
 ```
 
-The package does not enable the timer before those files are configured.
+The package does not enable the service before those files are configured.
 
 ## Configure
 
@@ -87,18 +87,26 @@ Any deployment that supports `ceph mgr dump --format json`, `ceph fsid`, and `ce
 
 For one external runner, set `coordination` to `none`. Do not use `none` on every node in a cluster. SSH transport remains available; `ceph.host` identifies the remote manager unless `ceph.manager_name` is set explicitly.
 
-### systemd timer on every PVE node
+### systemd service on every PVE node
 
 The Debian package installs the binary at `/usr/sbin/ceph-vault-sync`, the configuration at `/etc/ceph-vault-sync/config.json`, the root-only Vault environment file at `/etc/default/ceph-vault-sync`, and the service and timer units under `/lib/systemd/system`.
 
-Set `VAULT_TOKEN` in `/etc/default/ceph-vault-sync`, then enable the timer after configuring every node:
+Set `VAULT_TOKEN` in `/etc/default/ceph-vault-sync`, then enable the service after configuring every node:
 
 ```bash
 chmod 0600 /etc/ceph-vault-sync/config.json /etc/default/ceph-vault-sync
-systemctl enable --now ceph-vault-sync.timer
+systemctl enable --now ceph-vault-sync.service
 ```
 
-Systemd does not overlap activations of the same oneshot service on one host. Active-manager coordination prevents overlap between hosts.
+The service synchronizes immediately, then polls every 15 seconds. Active-manager coordination ensures only one cluster node reads credentials or accesses Vault. The timer remains packaged so installations upgrading from the older timer-based service still start the resident service after boot.
+
+Reloading triggers an immediate synchronization and rereads the JSON configuration and CA certificate. `SIGUSR1` also triggers an immediate synchronization. Restart the service after changing `/etc/default/ceph-vault-sync` because a running process cannot inherit changed environment variables.
+
+```bash
+systemctl reload ceph-vault-sync.service
+systemctl kill --kill-whom=main --signal=SIGUSR1 ceph-vault-sync.service
+systemctl restart ceph-vault-sync.service
+```
 
 ## Synchronize
 
@@ -129,7 +137,7 @@ Check for drift without writing. Exit status 2 means at least one path differs:
 ceph-vault-sync sync -config config.json -check
 ```
 
-Run the service immediately after an administrator changes a CephX key instead of waiting for the next timer interval.
+The resident service detects CephX key changes within the polling interval. A rotation workflow can run `systemctl reload ceph-vault-sync.service` for immediate synchronization.
 
 ## External Secrets
 
