@@ -135,7 +135,7 @@ pve-rook-secret-sync migrate
 
 It runs the Proxmox helper for `client.admin` and the cluster-owned monitor, manager, OSD, and MDS keys, migrates each configured RGW daemon, then rotates the Rook credentials to a new AES256K generation and publishes them to Vault. Rook credentials are skipped when the active generation already uses AES256K. Only Rook consumer secrets reach Vault; `client.admin` and RGW daemon keys stay on the provider.
 
-RGW daemon keys are not owned by the Proxmox helper, so each daemon must be listed with the keyring its unit reads:
+RGW daemon keys are not owned by the Proxmox helper. They are discovered from `ceph service dump`, which reports the id and host of every registered gateway. Each daemon's `ceph-radosgw@<id>.service` unit and keyring are then resolved on that host, preferring the keyring the daemon's own configuration names. List `ceph.rgw_daemons` only to override that discovery, for example when a gateway uses a custom unit or a host name that does not resolve:
 
 ```json
 {
@@ -155,7 +155,7 @@ RGW daemon keys are not owned by the Proxmox helper, so each daemon must be list
 }
 ```
 
-Daemons migrate one at a time. Each one gets a pending AES256K key next to its current key, receives the new keyring over SSH, and restarts. Ceph promotes a pending key only when the daemon authenticates with it, so the promotion is the proof that the restart succeeded. A daemon that does not come back keeps its working key and stops the run before any later daemon or Rook credential changes.
+Listing any daemon replaces discovery entirely. Daemons migrate one at a time. Each one gets a pending AES256K key next to its current key, receives the new keyring over SSH, and restarts. Ceph promotes a pending key only when the daemon authenticates with it, so the promotion is the proof that the restart succeeded. A daemon that does not come back keeps its working key and stops the run before any later daemon or Rook credential changes.
 
 Restrict the monitors to AES256K with `ceph mon set auth_allowed_ciphers aes256k` only after `ceph health detail` reports no remaining insecure key, including keys held by consumers this tool does not manage. Restricting ciphers while any key is incompatible can make the cluster unavailable.
 

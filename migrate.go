@@ -20,6 +20,7 @@ type migrationSource interface {
 	rotationSource
 	RunMigrationHelper(context.Context, bool) ([]byte, error)
 	AuthKeyStates(context.Context) (map[string]authKeyState, error)
+	DiscoverRGWDaemons(context.Context) ([]rgwDaemonConfig, error)
 	StagePendingKey(context.Context, string) (string, error)
 	InstallRGWKey(context.Context, rgwDaemonConfig, string) error
 	RestartRGW(context.Context, rgwDaemonConfig) error
@@ -106,7 +107,13 @@ func migrateToSecureKeys(ctx context.Context, cfg config, source migrationSource
 	if err != nil {
 		return cfg, err
 	}
-	for _, daemon := range cfg.Ceph.RGWDaemons {
+	daemons := cfg.Ceph.RGWDaemons
+	if len(daemons) == 0 {
+		if daemons, err = source.DiscoverRGWDaemons(ctx); err != nil {
+			return cfg, err
+		}
+	}
+	for _, daemon := range daemons {
 		if err := migrateRGWDaemon(ctx, source, daemon, states[daemon.Entity], dryRun, output); err != nil {
 			return cfg, err
 		}

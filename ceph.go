@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -133,6 +134,40 @@ func (source cephSource) AuthKeyStates(ctx context.Context) (map[string]authKeyS
 	}
 	return parseAuthKeyStates(out)
 }
+
+func (source cephSource) DiscoverRGWDaemons(ctx context.Context) ([]rgwDaemonConfig, error) {
+	out, err := source.run(ctx, "service", "dump", "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("read Ceph service map: %w", err)
+	}
+	daemons, err := parseRGWDaemons(out)
+	if err != nil {
+		return nil, err
+	}
+	for i, daemon := range daemons {
+		id := strings.TrimPrefix(daemon.Entity, "client.rgw.")
+		location, err := source.runHostCommand(ctx, daemon.Host, nil, "sh", "-c", locateRGWScript, "sh", id)
+		if err != nil {
+			return nil, fmt.Errorf("locate %s on %s: %w; configure ceph.rgw_daemons instead", daemon.Entity, daemon.Host, err)
+		}
+		fields := strings.Fields(string(location))
+		if len(fields) != 2 {
+			return nil, fmt.Errorf("locate %s on %s: unexpected response", daemon.Entity, daemon.Host)
+		}
+		daemons[i].Unit, daemons[i].Keyring = fields[0], fields[1]
+	}
+	return daemons, nil
+}
+
+// locateRGWScript prefers the keyring the daemon itself resolves over the packaging default.
+const locateRGWScript = `set -eu
+unit="ceph-radosgw@$1.service"
+test "$(systemctl show -p LoadState --value -- "$unit")" = loaded
+configured=$(ceph-conf -n "client.rgw.$1" keyring 2>/dev/null | tr ',' ' ' || true)
+for candidate in $configured "/var/lib/ceph/radosgw/ceph-rgw.$1/keyring" "/etc/ceph/ceph.client.rgw.$1.keyring"; do
+	if [ -f "$candidate" ]; then printf '%s %s\n' "$unit" "$candidate"; exit 0; fi
+done
+exit 1`
 
 func (source cephSource) StagePendingKey(ctx context.Context, entity string) (string, error) {
 	out, err := source.run(ctx, "auth", "get-or-create-pending", entity, "--format", "json")
@@ -264,6 +299,43 @@ func (source cephSource) runHostCommand(ctx context.Context, host string, stdin 
 		}
 	}
 	return nil, fmt.Errorf("command failed: %w", err)
+}
+
+func parseRGWDaemons(out []byte) ([]rgwDaemonConfig, error) {
+	var dump struct {
+		Services struct {
+			RGW struct {
+				Daemons map[string]json.RawMessage `json:"daemons"`
+			} `json:"rgw"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(out, &dump); err != nil {
+		return nil, fmt.Errorf("decode Ceph service map: %w", err)
+	}
+	daemons := make([]rgwDaemonConfig, 0, len(dump.Services.RGW.Daemons))
+	for name, raw := range dump.Services.RGW.Daemons {
+		if name == "summary" {
+			continue
+		}
+		var daemon struct {
+			Metadata struct {
+				ID       string `json:"id"`
+				Hostname string `json:"hostname"`
+			} `json:"metadata"`
+		}
+		if err := json.Unmarshal(raw, &daemon); err != nil {
+			continue
+		}
+		if daemon.Metadata.ID == "" || daemon.Metadata.Hostname == "" {
+			return nil, fmt.Errorf("decode Ceph service map: entry %q has no id or hostname", name)
+		}
+		daemons = append(daemons, rgwDaemonConfig{
+			Entity: "client.rgw." + daemon.Metadata.ID,
+			Host:   daemon.Metadata.Hostname,
+		})
+	}
+	slices.SortFunc(daemons, func(a, b rgwDaemonConfig) int { return strings.Compare(a.Entity, b.Entity) })
+	return daemons, nil
 }
 
 func parseAuthKeyStates(out []byte) (map[string]authKeyState, error) {

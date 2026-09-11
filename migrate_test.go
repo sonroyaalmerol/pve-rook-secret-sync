@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,13 @@ type fakeMigrationSource struct {
 	staged      []string
 	installed   []string
 	restarted   []string
+	discoveries int
 	stuck       bool
+}
+
+func (source *fakeMigrationSource) DiscoverRGWDaemons(context.Context) ([]rgwDaemonConfig, error) {
+	source.discoveries++
+	return observedRGWDaemons(), nil
 }
 
 func (source *fakeMigrationSource) RunMigrationHelper(_ context.Context, apply bool) ([]byte, error) {
@@ -95,7 +102,6 @@ func observedRGWDaemons() []rgwDaemonConfig {
 
 func TestMigrateToSecureKeysCoversHelperRGWAndRook(t *testing.T) {
 	cfg := testConfig()
-	cfg.Ceph.RGWDaemons = observedRGWDaemons()
 	source := observedMigrationSource(false)
 	vault := &fakeVault{values: map[string]vaultValue{}, writes: map[string]map[string]string{}}
 	var output bytes.Buffer
@@ -104,8 +110,8 @@ func TestMigrateToSecureKeysCoversHelperRGWAndRook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(source.helperApply) != 1 || !source.helperApply[0] {
-		t.Fatalf("migration helper calls = %v", source.helperApply)
+	if len(source.helperApply) != 1 || !source.helperApply[0] || source.discoveries != 1 {
+		t.Fatalf("helper calls = %v, discoveries = %d", source.helperApply, source.discoveries)
 	}
 	want := "client.rgw.k8s-staging.10.254.23.51,client.rgw.k8s-staging.10.254.23.52,client.rgw.k8s-staging.10.254.23.53"
 	for name, got := range map[string][]string{"staged": source.staged, "installed": source.installed, "restarted": source.restarted} {
@@ -121,6 +127,23 @@ func TestMigrateToSecureKeysCoversHelperRGWAndRook(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "client.admin: migrated") {
 		t.Fatalf("helper output was not forwarded: %q", output.String())
+	}
+}
+
+func TestMigrateToSecureKeysPrefersConfiguredRGWDaemons(t *testing.T) {
+	cfg := testConfig()
+	cfg.Ceph.RGWDaemons = observedRGWDaemons()[:1]
+	source := observedMigrationSource(false)
+	vault := &fakeVault{values: map[string]vaultValue{}, writes: map[string]map[string]string{}}
+
+	if _, err := migrateToSecureKeys(context.Background(), cfg, source, vault, false, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if source.discoveries != 0 {
+		t.Fatalf("discoveries = %d, want 0", source.discoveries)
+	}
+	if strings.Join(source.restarted, ",") != "client.rgw.k8s-staging.10.254.23.51" {
+		t.Fatalf("restarted = %q", strings.Join(source.restarted, ","))
 	}
 }
 
@@ -162,6 +185,7 @@ func TestMigrateToSecureKeysDryRunChangesNothing(t *testing.T) {
 func TestMigrateToSecureKeysSkipsRotatedRookGeneration(t *testing.T) {
 	cfg := testConfig()
 	cfg.CephXGeneration = 2
+	cfg.Ceph.RGWDaemons = observedRGWDaemons()
 	source := observedMigrationSource(false)
 	source.states["client.healthchecker.2"] = authKeyState{Current: secureKeyType}
 	source.states["client.csi-rbd-node.2"] = authKeyState{Current: secureKeyType}
@@ -177,6 +201,28 @@ func TestMigrateToSecureKeysSkipsRotatedRookGeneration(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "already uses "+secureKeyType) {
 		t.Fatalf("unexpected output %q", output.String())
+	}
+}
+
+func TestParseRGWDaemons(t *testing.T) {
+	daemons, err := parseRGWDaemons([]byte(`{"services":{"rgw":{"daemons":{"summary":"",
+		"4711":{"gid":4711,"metadata":{"hostname":"vm-lan-1","id":"k8s-staging.10.254.23.52"}},
+		"4710":{"gid":4710,"metadata":{"hostname":"vm-lan-1","id":"k8s-staging.10.254.23.51"}}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []rgwDaemonConfig{
+		{Entity: "client.rgw.k8s-staging.10.254.23.51", Host: "vm-lan-1"},
+		{Entity: "client.rgw.k8s-staging.10.254.23.52", Host: "vm-lan-1"},
+	}
+	if !slices.Equal(daemons, want) {
+		t.Fatalf("daemons = %+v", daemons)
+	}
+	if empty, err := parseRGWDaemons([]byte(`{"services":{}}`)); err != nil || len(empty) != 0 {
+		t.Fatalf("a cluster without RGW was rejected: %v", err)
+	}
+	if _, err := parseRGWDaemons([]byte(`{"services":{"rgw":{"daemons":{"4710":{"metadata":{"id":"one"}}}}}}`)); err == nil {
+		t.Fatal("daemon without a hostname was accepted")
 	}
 }
 
